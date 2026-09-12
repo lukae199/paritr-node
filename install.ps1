@@ -111,7 +111,7 @@ try {
         $actual = (& git.exe -C $rxSource rev-parse HEAD).Trim()
         if ($actual -ne $RandomXCommit) { throw "RandomX tag identity mismatch: $actual" }
         $rxBuild = Join-Path $rxSource 'build'
-        Invoke-Checked 'cmake.exe' @('-S',$rxSource,'-B',$rxBuild,'-DCMAKE_BUILD_TYPE=Release','-DBUILD_SHARED_LIBS=ON','-DARCH=native')
+        Invoke-Checked 'cmake.exe' @('-S',$rxSource,'-B',$rxBuild,'-DCMAKE_BUILD_TYPE=Release','-DCMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON','-DBUILD_SHARED_LIBS=ON','-DARCH=native')
         Invoke-Checked 'cmake.exe' @('--build',$rxBuild,'--config','Release','--parallel')
         $rxDll = Get-ChildItem -LiteralPath $rxBuild -Recurse -File | Where-Object { $_.Name -in @('randomx.dll','librandomx.dll') } | Select-Object -First 1
         if (-not $rxDll) { throw 'RandomX shared library build did not produce a DLL.' }
