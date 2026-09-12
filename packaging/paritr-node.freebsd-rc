@@ -1,0 +1,23 @@
+#!/bin/sh
+# PROVIDE: paritr_node
+# REQUIRE: NETWORKING
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="paritr_node"
+rcvar="paritr_node_enable"
+
+load_rc_config "$name"
+: ${paritr_node_enable:="NO"}
+: ${paritr_node_dir:="/usr/local/paritr-node"}
+: ${paritr_node_config:="${paritr_node_dir}/config.json"}
+: ${paritr_node_user:="root"}
+
+pidfile="${paritr_node_dir}/paritr-node.pid"
+procname="${paritr_node_dir}/paritr-node"
+required_files="${procname} ${paritr_node_config}"
+command="/usr/sbin/daemon"
+command_args="-f -r -R 5 -u ${paritr_node_user} -p ${pidfile} -o ${paritr_node_dir}/paritr.log ${procname} --config ${paritr_node_config} run"
+
+run_rc_command "$1"

@@ -1,0 +1,8 @@
+target
+.toolchains
+.git
+data
+config.json
+*.log
+*.sqlite*
+__pycache__

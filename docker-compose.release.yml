@@ -1,0 +1,28 @@
+name: paritr-p9
+
+services:
+  paritr-node:
+    image: "${PARITR_IMAGE_REF:?PARITR_IMAGE_REF is required}"
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "${PARITR_LISTEN_HOST:-127.0.0.1}:${PARITR_PUBLIC_PORT:-5050}:5050"
+    volumes:
+      - paritr-data:/var/lib/paritr
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5050/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  paritr-data:
+    name: paritr-p9-data

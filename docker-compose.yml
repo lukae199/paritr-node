@@ -1,0 +1,21 @@
+services:
+  paritr-node:
+    build:
+      context: .
+    image: paritr-node:4.0.0-rc.1
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "5050:5050"
+    volumes:
+      - paritr-data:/var/lib/paritr
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    stop_grace_period: 30s
+
+volumes:
+  paritr-data:

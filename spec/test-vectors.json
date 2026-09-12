@@ -1,0 +1,61 @@
+{
+  "format": "paritr-protocol-9-test-vectors-v1",
+  "chain_id": "paritr-mainnet-p9",
+  "protocol_version": 9,
+  "header_version": 3,
+  "codec": {
+    "integer_endianness": "little",
+    "variable_length_prefix": "u32 little-endian",
+    "block_header_bytes": 160,
+    "p2p_magic_ascii": "PRT9",
+    "address_version": 55
+  },
+  "randomx_v1_self_test": {
+    "library_release": "1.2.3",
+    "key_utf8": "test key 000",
+    "input_utf8": "This is a test",
+    "output_hex": "639183aae1bf4c9a35884cb46b09cad9175f04efd7684e7262a0ac1c2f0b4e3f",
+    "target_interpretation": "unsigned-little-endian"
+  },
+  "genesis": {
+    "timestamp": 1788984000,
+    "message_utf8": "Paritr Mainnet Protocol 9 - sustainable workshare PoW - 2026-09-09",
+    "bits_decimal": 520355839,
+    "bits_hex": "1f03ffff",
+    "nonce": 0,
+    "transactions_root": "ece9cf93862588e0de73602cd3361fa5c8efc031d5a9fafb65c3877b14e1d350",
+    "state_root": "e55ef31e65f0e301c8346f844a1bd748c395e23147881cec7a87173e147e10e9",
+    "workshare_root": "e0622ca26dc9ce82101cd2dd43c17b21adea8108a92e27b0ccc78bf87b3148c0",
+    "block_id": "44f076c3b96c8e7cb49605d13d04177cadb1f2e44faf9f5f2c249b5da32b320f",
+    "consensus_base64": "AwAJAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADs6c+ThiWI4N5zYCzTNh+lyO/AMdWp+vtlw4d7FOHTUOVe8x5l8OMByDRvhEob10jDleIxR4gc7HqHFz4UfhDp4GIsom3JzoIQHNLdQ8F7Ia3qgQipLiewzMeL+HsxSMDAuqFqAAAAAP//Ax8AAAAAAAAAAAAAAAAACgAAAAEAAAAAAAAAAAA="
+  },
+  "limits": {
+    "max_block_bytes": 8388608,
+    "max_block_transactions": 4096,
+    "max_transaction_bytes": 1024,
+    "max_template_bytes": 4194304,
+    "max_workshare_witness_bytes": 4194304,
+    "max_workshares_per_block": 512,
+    "max_templates_per_block": 512,
+    "max_money": 4611686018427387903
+  },
+  "economics": {
+    "coin": 100000000,
+    "initial_subsidy": 1000000000,
+    "minimum_subsidy": 50000000,
+    "halving_interval": 1600000,
+    "finder_percent": 5,
+    "workshare_pool_percent": 95,
+    "workshare_window_blocks": 1440,
+    "reward_maturity_blocks": 100
+  },
+  "timing": {
+    "target_block_seconds": 64,
+    "asert_half_life_seconds": 7200,
+    "median_time_span": 11,
+    "maximum_future_seconds": 300,
+    "workshare_target_multiplier": 16,
+    "randomx_epoch_blocks": 2048,
+    "randomx_seed_lag_blocks": 64
+  }
+}

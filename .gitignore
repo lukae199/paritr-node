@@ -1,0 +1,16 @@
+/target/
+/.toolchains/
+/data/
+/config.toml
+/config.json
+__pycache__/
+*.pyc
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.dll
+*.dylib
+*.so
+*.zip
+*.tar.gz
