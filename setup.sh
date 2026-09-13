@@ -2,7 +2,7 @@
 # Unified Paritr Protocol 9 setup for Linux, macOS and FreeBSD.
 set -Eeuo pipefail
 
-NODE_VERSION="4.0.0-rc.1"
+NODE_VERSION="4.0.1-rc.1"
 PROTOCOL_VERSION="9"
 SOURCE_BASE="${PARITR_SOURCE:-https://paritr.highactive.de/downloads}"
 DEPLOYMENT="auto"
@@ -221,29 +221,15 @@ if [[ "$ASSUME_YES" -eq 0 && -r /dev/tty ]]; then
   echo "Paritr Protocol $PROTOCOL_VERSION setup"
   echo "This wizard never asks for a wallet private key or seed phrase."
   if [[ "$DEPLOYMENT" == auto ]]; then
-    if [[ "$OS" == Linux ]]; then DEPLOYMENT="docker"; else DEPLOYMENT="native"; fi
+    DEPLOYMENT="native"
     ask_value DEPLOYMENT "Installation type (docker/native)" "$DEPLOYMENT"
   fi
-  if ask_yes_no "Enable CPU mining?" no; then
-    ask_value ADDRESS "Paritr reward address (P...)"
-    ask_value CORES "Mining workers (0 = automatic)" "$CORES"
-    ask_value INTENSITY "CPU intensity in percent" "$INTENSITY"
-    if ask_yes_no "Use RandomX fast mode (about 2.1 GiB)?" yes; then MODE="fast"; else MODE="light"; fi
-  fi
-  if ask_yes_no "Pair this node with the wallet portal?" no; then
-    ask_value PORTAL_URL "Wallet portal HTTPS URL" "$PORTAL_URL"
-    ask_value PAIR_CODE "One-time pairing code"
-  fi
-  if ask_yes_no "Advertise an existing public HTTPS node address?" no; then
-    ask_value PUBLIC_URL "Public HTTPS URL"
-    ask_value PORT "Local public port" "$PORT"
-    ask_yes_no "Open TCP port $PORT in the host firewall?" no && OPEN_FIREWALL=1
-  fi
+  echo "Mining, wallet pairing and the device name are configured in the local browser after installation."
 fi
 
 [[ "$DEPLOYMENT" =~ ^(auto|docker|native)$ ]] || { echo "Invalid deployment: $DEPLOYMENT" >&2; exit 2; }
 if [[ "$DEPLOYMENT" == auto ]]; then
-  if [[ "$OS" == Linux ]]; then DEPLOYMENT="docker"; else DEPLOYMENT="native"; fi
+  DEPLOYMENT="native"
 fi
 [[ "$PORT" =~ ^[0-9]+$ ]] && (( PORT > 0 && PORT < 65536 )) || { echo "Invalid port" >&2; exit 2; }
 [[ "$CORES" =~ ^[0-9]+$ ]] && (( CORES <= 1024 )) || { echo "Invalid core count" >&2; exit 2; }
@@ -315,7 +301,7 @@ install_container() {
   if [[ -f "$NODE_DIR/.env" ]]; then existing_listen="$(sed -nE 's/^PARITR_LISTEN_HOST=(127\.0\.0\.1|0\.0\.0\.0)$/\1/p' "$NODE_DIR/.env" | head -n 1)"; fi
   [[ -z "$existing_listen" ]] || listen_host="$existing_listen"
   [[ -z "$PUBLIC_URL" && "$OPEN_FIREWALL" -eq 0 ]] || listen_host="0.0.0.0"
-  printf 'PARITR_IMAGE_REF=%s\nPARITR_LISTEN_HOST=%s\nPARITR_PUBLIC_PORT=%s\n' "$IMAGE_REF" "$listen_host" "$PORT" >"$NODE_DIR/.env"
+  printf 'PARITR_IMAGE_REF=%s\nPARITR_LISTEN_HOST=%s\nPARITR_PUBLIC_PORT=%s\nPARITR_MANAGEMENT_HOST=0.0.0.0\nPARITR_MANAGEMENT_PORT=5052\n' "$IMAGE_REF" "$listen_host" "$PORT" >"$NODE_DIR/.env"
   chmod 0600 "$NODE_DIR/.env"
   printf 'mode=docker\nversion=%s\nsource=%s\n' "$NODE_VERSION" "$SOURCE_BASE" >"$NODE_DIR/.paritr-deployment"
   chmod 0600 "$NODE_DIR/.paritr-deployment"
@@ -325,7 +311,7 @@ install_container() {
   }
   compose pull paritr-node
   if ! compose run --rm --no-deps --entrypoint /bin/sh paritr-node -c 'test -f /var/lib/paritr/config.json'; then
-    local init_args=(run --rm --no-deps paritr-node init --public-bind "0.0.0.0:5050" --admin-bind "127.0.0.1:5051" --mining-threads "$CORES" --mining-intensity "$INTENSITY" --randomx-mode "$MODE")
+    local init_args=(run --rm --no-deps paritr-node init --public-bind "0.0.0.0:5050" --admin-bind "127.0.0.1:5051" --management-bind "0.0.0.0:5052" --mining-threads "$CORES" --mining-intensity "$INTENSITY" --randomx-mode "$MODE")
     [[ -z "$ADDRESS" ]] || init_args+=(--miner-address "$ADDRESS" --enable-mining)
     [[ -z "$PUBLIC_URL" ]] || init_args+=(--public-url "$PUBLIC_URL")
     compose "${init_args[@]}"
@@ -357,4 +343,7 @@ echo
 echo "Installation complete: $NODE_DIR"
 echo "Management: $NODE_DIR/manage.sh status"
 echo "Local API:  http://127.0.0.1:$PORT"
+if [[ "$DEPLOYMENT" == docker ]]; then
+  compose run --rm --no-deps paritr-node admin-access
+fi
 echo "Private keys and wallet seed phrases are never requested by this installer."

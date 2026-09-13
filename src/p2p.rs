@@ -393,6 +393,9 @@ pub enum PeerError {
 }
 
 pub async fn serve_socket(mut socket: WebSocket, node: Arc<Node>) -> Result<(), PeerError> {
+    if !node.is_enabled() {
+        return Err(PeerError::Handshake);
+    }
     let hello = node.local_hello(Hash32::ZERO);
     socket
         .send(Message::Binary(
@@ -449,6 +452,9 @@ pub async fn serve_socket(mut socket: WebSocket, node: Arc<Node>) -> Result<(), 
         }
         loop {
             tokio::select! {
+                () = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                    if !node.is_enabled() { break; }
+                }
                 incoming = socket.next() => {
                     let Some(message) = incoming else { break };
                     let message = message.map_err(|error| PeerError::WebSocket(error.to_string()))?;
@@ -513,6 +519,11 @@ pub fn spawn_outbound_manager(node: &Arc<Node>) -> Vec<tokio::task::JoinHandle<(
             tokio::spawn(async move {
                 let mut delay = 2_u64;
                 loop {
+                    if !node.is_enabled() {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        delay = 2;
+                        continue;
+                    }
                     if let Err(error) = outbound_once(Arc::clone(&node), &url).await {
                         tracing::debug!(peer = %url, %error, "outbound P2P connection ended");
                     }
@@ -596,6 +607,9 @@ async fn outbound_once(node: Arc<Node>, url: &str) -> Result<(), PeerError> {
         }
         loop {
             tokio::select! {
+                () = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                    if !node.is_enabled() { break; }
+                }
                 incoming = socket.next() => {
                     let Some(message) = incoming else { break };
                     let message = message.map_err(|error| PeerError::WebSocket(error.to_string()))?;

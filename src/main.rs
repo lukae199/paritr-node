@@ -43,6 +43,8 @@ enum Command {
         #[arg(long)]
         admin_bind: Option<String>,
         #[arg(long)]
+        management_bind: Option<String>,
+        #[arg(long)]
         public_url: Option<String>,
     },
     /// Pair the outbound-only portal agent.
@@ -58,6 +60,8 @@ enum Command {
     Check,
     /// Print configuration with all locally stored secrets redacted.
     ShowConfig,
+    /// Print the local first-run URL and admin secret.
+    AdminAccess,
     /// Print the immutable Protocol 9 genesis and consensus bytes.
     PrintGenesis,
 }
@@ -81,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
             randomx_mode,
             public_bind,
             admin_bind,
+            management_bind,
             public_url,
         } => {
             let mut config = Config::load_or_create(&cli.config)?;
@@ -99,6 +104,9 @@ async fn main() -> anyhow::Result<()> {
             }
             if let Some(bind) = admin_bind {
                 config.admin_bind = bind;
+            }
+            if let Some(bind) = management_bind {
+                config.management_bind = bind;
             }
             if let Some(url) = public_url {
                 config.public_url = (!url.is_empty()).then_some(url);
@@ -120,12 +128,12 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Check => {
             let config = Config::load_or_create(&cli.config)?;
-            init_logging(&config.log_level);
+            let _logging = init_logging(&config.log_level, &config.data_dir);
             let randomx = Arc::new(RandomX::load(
                 config.randomx_library.as_deref(),
                 config.randomx_mode.into(),
             )?);
-            let node = Node::open(config, randomx)?;
+            let node = Node::open(config, cli.config.clone(), randomx)?;
             println!(
                 "OK: Protocol {}, height {}, tip {}",
                 PROTOCOL_VERSION,
@@ -147,6 +155,18 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", serde_json::to_string_pretty(&value)?);
             Ok(())
         }
+        Command::AdminAccess => {
+            let config = Config::load_or_create(&cli.config)?;
+            let port = config
+                .management_bind
+                .parse::<std::net::SocketAddr>()?
+                .port();
+            println!("Management URL: http://{}.local:{port}", config.device_name);
+            println!("Local fallback: http://127.0.0.1:{port}");
+            println!("Admin secret: {}", config.admin_secret);
+            println!("Keep this secret private; no wallet key or seed phrase is needed.");
+            Ok(())
+        }
         Command::PrintGenesis => {
             let genesis = Block::genesis();
             println!(
@@ -164,7 +184,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn run(config_path: PathBuf) -> anyhow::Result<()> {
     let config = Config::load_or_create(&config_path)?;
-    init_logging(&config.log_level);
+    let _logging = init_logging(&config.log_level, &config.data_dir);
     tracing::info!(
         version = NODE_VERSION,
         protocol = PROTOCOL_VERSION,
@@ -177,10 +197,26 @@ async fn run(config_path: PathBuf) -> anyhow::Result<()> {
         )
         .context("RandomX v1.2.3 initialization failed")?,
     );
-    let node = Node::open(config, randomx)?;
+    let node = Node::open(config, config_path, randomx)?;
     let peers = paritr::p2p::spawn_outbound_manager(&node);
     let portal = paritr::portal::spawn(Arc::clone(&node));
     let miner = MiningController::start(&node);
+    let _mdns = match paritr::mdns::register(&node.config) {
+        Ok(service) => Some(service),
+        Err(error) => {
+            tracing::warn!(%error, "mDNS registration unavailable");
+            None
+        }
+    };
+    let management_port = node
+        .config
+        .management_bind
+        .parse::<std::net::SocketAddr>()?
+        .port();
+    tracing::info!(
+        url = %format!("http://{}.local:{management_port}", node.config.device_name),
+        "local management page available"
+    );
 
     tokio::select! {
         result = paritr::rpc::serve(node) => result?,
@@ -198,8 +234,23 @@ async fn run(config_path: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn init_logging(level: &str) {
+fn init_logging(
+    level: &str,
+    data_dir: &std::path::Path,
+) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_subscriber::fmt::writer::MakeWriterExt;
+
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level));
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+    let _ = std::fs::create_dir_all(data_dir);
+    let appender = tracing_appender::rolling::never(data_dir, "node.log");
+    let (file_writer, guard) = tracing_appender::non_blocking(appender);
+    let writer = std::io::stdout.and(file_writer);
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(writer)
+        .with_ansi(false)
+        .try_init()
+        .ok()?;
+    Some(guard)
 }

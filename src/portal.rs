@@ -46,7 +46,7 @@ pub async fn pair(config_path: &Path, portal: &str, code: &str) -> anyhow::Resul
         .build()?;
     let payload = serde_json::json!({
         "code": code.trim().to_uppercase(),
-        "device_id": node_public_id(&config)?,
+        "device_id": config.device_id,
         "chain_id": consensus::CHAIN_ID,
         "protocol_version": consensus::PROTOCOL_VERSION,
         "node_version": consensus::NODE_VERSION,
@@ -60,7 +60,12 @@ pub async fn pair(config_path: &Path, portal: &str, code: &str) -> anyhow::Resul
         .send()
         .await?;
     if !response.status().is_success() {
-        bail!("portal pairing failed with HTTP {}", response.status());
+        let status = response.status();
+        let detail = response.text().await.unwrap_or_default();
+        bail!(
+            "portal pairing failed with HTTP {status}: {}",
+            detail.chars().take(512).collect::<String>()
+        );
     }
     let paired: PairResponse = response.json().await.context("invalid portal response")?;
     if paired.agent_id.is_empty() || paired.token.len() < 24 {
@@ -162,7 +167,12 @@ async fn sync_once(
         .send()
         .await?;
     if !response.status().is_success() {
-        bail!("portal returned HTTP {}", response.status());
+        let status = response.status();
+        let detail = response.text().await.unwrap_or_default();
+        bail!(
+            "portal returned HTTP {status}: {}",
+            detail.chars().take(512).collect::<String>()
+        );
     }
     Ok(response.json::<SyncResponse>().await?.commands)
 }
@@ -176,7 +186,7 @@ async fn execute_command(client: &Client, node: &Node, command: PortalCommand) -
             response: serde_json::json!({ "error": "relay endpoint is not allowed" }),
         };
     }
-    let admin = command.endpoint.starts_with("/admin/");
+    let admin = command.endpoint.starts_with("/admin/") || command.endpoint.starts_with("/state/");
     let bind = if admin {
         &node.config.admin_bind
     } else {
@@ -237,7 +247,8 @@ async fn response_to_result(id: u64, response: reqwest::Response) -> CommandResu
 }
 
 fn allowed_endpoint(method: &str, endpoint: &str) -> bool {
-    if !endpoint.starts_with('/')
+    if endpoint.len() > 2_048
+        || !endpoint.starts_with('/')
         || endpoint.contains("..")
         || endpoint.contains("://")
         || endpoint.contains('\0')
@@ -249,11 +260,42 @@ fn allowed_endpoint(method: &str, endpoint: &str) -> bool {
         "GET" => {
             matches!(
                 path,
-                "/status" | "/health" | "/chain/params" | "/admin/status"
+                "/" | "/status"
+                    | "/info"
+                    | "/health"
+                    | "/chain/params"
+                    | "/supply"
+                    | "/fee/estimate"
+                    | "/mining/info"
+                    | "/mining/distribution"
+                    | "/p2p/info"
+                    | "/p2p/whoami"
+                    | "/state/snapshot"
+                    | "/admin/auth"
+                    | "/admin/status"
+                    | "/admin/peers"
+                    | "/admin/mempool"
+                    | "/admin/blocks"
             ) || path.starts_with("/address/")
                 || path.starts_with("/block/")
+                || path.starts_with("/transaction/")
+                || path.starts_with("/mining/rewards/")
         }
-        "POST" => matches!(path, "/transaction" | "/admin/sync") && !endpoint.contains('?'),
+        "POST" => {
+            matches!(
+                path,
+                "/transaction"
+                    | "/admin/auth"
+                    | "/admin/mining"
+                    | "/admin/peers/unban"
+                    | "/admin/peers/add"
+                    | "/admin/peers/remove"
+                    | "/admin/sync"
+                    | "/admin/start"
+                    | "/admin/stop"
+                    | "/admin/restart"
+            ) && !endpoint.contains('?')
+        }
         _ => false,
     }
 }
@@ -277,6 +319,10 @@ fn validate_portal(value: &str) -> anyhow::Result<Url> {
         let path = url.path().trim_end_matches("/api.php").to_owned();
         url.set_path(&path);
     }
+    if !url.path().ends_with('/') {
+        let path = format!("{}/", url.path());
+        url.set_path(&path);
+    }
     Ok(url)
 }
 
@@ -284,11 +330,4 @@ fn action_url(base: &Url, action: &str) -> anyhow::Result<Url> {
     let mut url = base.join("api.php")?;
     url.query_pairs_mut().append_pair("action", action);
     Ok(url)
-}
-
-fn node_public_id(config: &Config) -> anyhow::Result<String> {
-    let bytes = hex::decode(&config.node_private_key)?;
-    let secret = secp256k1::SecretKey::from_slice(&bytes)?;
-    let public = secp256k1::PublicKey::from_secret_key(&secp256k1::Secp256k1::new(), &secret);
-    Ok(crate::crypto::domain_hash(b"PARITR-P9-NODE-ID-v1", &public.serialize()).to_string())
 }

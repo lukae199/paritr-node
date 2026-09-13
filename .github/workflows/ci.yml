@@ -56,13 +56,14 @@ jobs:
         run: |
           git clone --quiet --depth 1 --branch v1.2.3 https://github.com/tevador/RandomX.git RandomX
           test "$(git -C RandomX rev-parse HEAD)" = 12f2c2ffe2108d6cf54c391fee33c8bc3646cdab
-          cmake -S RandomX -B RandomX/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
+          cmake -S RandomX -B RandomX/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-z,noexecstack"
           cmake --build RandomX/build --config Release --parallel
       - name: Exercise the RandomX ABI and official v1 hash vector
         shell: bash
         run: |
           rx="$(find RandomX/build -type f -name 'librandomx.so' | head -n 1)"
           test -n "$rx"
+          readelf -W -l "$rx" | awk '/GNU_STACK/ { found=1; if ($0 ~ /RWE/) exit 1 } END { if (!found) exit 1 }'
           export PARITR_RANDOMX_LIBRARY="$rx"
           cargo run --locked -- --config "$RUNNER_TEMP/paritr-smoke/config.json" check
 

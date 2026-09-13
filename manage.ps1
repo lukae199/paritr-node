@@ -8,7 +8,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $NodeDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$TaskName = if ($env:PARITR_TASK_NAME) { $env:PARITR_TASK_NAME } else { 'ParitrNodeP9' }
+$TaskName = if ($env:PARITR_TASK_NAME) { $env:PARITR_TASK_NAME } else { 'ParitrNodeMainnet' }
 $Binary = Join-Path $NodeDir 'paritr-node.exe'
 $Config = Join-Path $NodeDir 'config.json'
 $Log = Join-Path $NodeDir 'paritr.log'
@@ -120,19 +120,19 @@ function Backup-Installation {
     if ($wasRunning) { Stop-Node }
     try {
         if ($Deployment -eq 'docker') {
-            $archive = Join-Path $backupDir "paritr-p9-$stamp.tar.gz"
+            $archive = Join-Path $backupDir "paritr-mainnet-$stamp.tar.gz"
             $imageLine = Get-Content -LiteralPath (Join-Path $NodeDir '.env') | Where-Object { $_ -match '^PARITR_IMAGE_REF=' } | Select-Object -First 1
             if (-not $imageLine) { throw 'PARITR_IMAGE_REF is missing.' }
             $image = $imageLine.Substring('PARITR_IMAGE_REF='.Length)
             $container = "paritr-backup-$([Guid]::NewGuid().ToString('N'))"
             try {
-                Invoke-Docker @('run','--name',$container,'--volume','paritr-p9-data:/data','--entrypoint','/bin/sh',$image,'-c','tar -C /data -czf /tmp/paritr-backup.tar.gz .')
+                Invoke-Docker @('run','--name',$container,'--volume','paritr-mainnet-data:/data','--entrypoint','/bin/sh',$image,'-c','tar -C /data -czf /tmp/paritr-backup.tar.gz .')
                 Invoke-Docker @('cp',"${container}:/tmp/paritr-backup.tar.gz",$archive)
             } finally {
                 Invoke-Docker @('rm','-f',$container) -AllowFailure 2>$null
             }
         } else {
-            $archive = Join-Path $backupDir "paritr-p9-$stamp.zip"
+            $archive = Join-Path $backupDir "paritr-mainnet-$stamp.zip"
             Compress-Archive -LiteralPath $Config,(Join-Path $NodeDir 'data') -DestinationPath $archive
         }
     } finally { if ($wasRunning) { Start-Node } }
@@ -192,6 +192,7 @@ switch ($Command.ToLowerInvariant()) {
         finally { if ($wasRunning) { Start-Node } }
     }
     'config' { Assert-Installed; Invoke-Node @('show-config') }
+    'access' { Assert-Installed; Invoke-Node @('admin-access') }
     default {
         Write-Host @'
 Paritr Protocol 9 management
@@ -203,6 +204,7 @@ Paritr Protocol 9 management
   .\manage.ps1 pair PRTR-... https://portal.example
   .\manage.ps1 unpair
   .\manage.ps1 config
+  .\manage.ps1 access
   .\manage.ps1 update
   .\manage.ps1 backup
 '@

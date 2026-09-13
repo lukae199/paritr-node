@@ -1,14 +1,15 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Context;
+use base64::Engine;
 use parking_lot::{Mutex, RwLock};
 use primitive_types::U256;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
@@ -25,6 +26,7 @@ use crate::{
     },
     crypto::{domain_hash, Address, Hash32},
     mempool::{Mempool, MempoolError},
+    miner::MiningStats,
     p2p::{Hello, ObjectKind, WireMessage},
     policy::RelayPolicy,
     pow::RandomX,
@@ -41,18 +43,58 @@ pub struct NodeStatus {
     pub best_block_hash: Hash32,
     pub state_root: Hash32,
     pub cumulative_work: String,
+    pub chain_work: String,
     pub difficulty_bits: String,
+    pub bits: String,
+    pub tip_bits: String,
     pub next_bits: String,
     pub target_block_time: u64,
     pub workshare_target_seconds: u64,
     pub reward_window: u64,
     pub finder_share_percent: u64,
     pub reward_maturity: u64,
+    pub shares_in_window: usize,
     pub mempool_transactions: usize,
+    pub mempool_size: usize,
     pub mempool_bytes: usize,
     pub live_workshares: usize,
     pub connected_peers: usize,
+    pub peer_count: usize,
+    pub network_nodes: usize,
+    pub active_miners: usize,
+    pub node_enabled: bool,
     pub mining_enabled: bool,
+    pub mining_active: bool,
+    pub miner_address: Option<Address>,
+    pub mining_processes: usize,
+    pub mining_processes_config: usize,
+    pub mining_intensity: u8,
+    pub cpu_total: usize,
+    pub randomx_mode: crate::config::MiningMode,
+    pub randomx_fast_available: bool,
+    pub hashrate: f64,
+    pub network_hashrate: f64,
+    pub estimated_hashrate: f64,
+    pub node_shares_submitted: u64,
+    pub blocks_found: u64,
+    pub blocks_found_local: u64,
+    pub difficulty: f64,
+    pub tip_difficulty: f64,
+    pub avg_block_time: f64,
+    pub last_block_time: u64,
+    pub circulating_supply: u64,
+    pub next_block_reward: u64,
+    pub min_subsidy: u64,
+    pub halving_interval: u64,
+    pub blocks_until_halving: u64,
+    pub annual_inflation: f64,
+    pub tail_emission: bool,
+    pub coin: u64,
+    pub share_multiplier: u64,
+    pub platform: String,
+    pub device_id: String,
+    pub device_name: String,
+    pub management_url: String,
     pub uptime_seconds: u64,
     pub emitted_supply: u64,
 }
@@ -193,6 +235,7 @@ impl WorksharePool {
 
 pub struct Node {
     pub config: Config,
+    config_path: PathBuf,
     storage: Arc<Storage>,
     pow: Arc<RandomX>,
     chain: RwLock<Chain>,
@@ -209,11 +252,17 @@ pub struct Node {
     pending_workshares: Mutex<HashMap<Hash32, (Hash32, Workshare)>>,
     events: broadcast::Sender<WireMessage>,
     generation: AtomicU64,
+    mining_stats: Arc<MiningStats>,
+    node_enabled: AtomicBool,
     started_at: u64,
 }
 
 impl Node {
-    pub fn open(config: Config, pow: Arc<RandomX>) -> anyhow::Result<Arc<Self>> {
+    pub fn open(
+        config: Config,
+        config_path: PathBuf,
+        pow: Arc<RandomX>,
+    ) -> anyhow::Result<Arc<Self>> {
         std::fs::create_dir_all(&config.data_dir)?;
         let storage = Arc::new(Storage::open(&config.data_dir.join("chain.sqlite"))?);
         let stored = storage.load_active_blocks()?;
@@ -232,8 +281,10 @@ impl Node {
         let (events, _) = broadcast::channel(2_048);
         let mut pool = WorksharePool::default();
         pool.reset(chain.tip().id());
+        let node_enabled = config.node_enabled;
         Ok(Arc::new(Self {
             config,
+            config_path,
             storage,
             pow,
             chain: RwLock::new(chain),
@@ -246,6 +297,8 @@ impl Node {
             pending_workshares: Mutex::new(HashMap::new()),
             events,
             generation: AtomicU64::new(0),
+            node_enabled: AtomicBool::new(node_enabled),
+            mining_stats: Arc::new(MiningStats::default()),
             started_at: unix_time(),
         }))
     }
@@ -258,38 +311,401 @@ impl Node {
         self.chain.read().snapshot()
     }
 
+    #[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
     pub fn status(&self) -> NodeStatus {
+        let live_workshares = self.workshares.lock().witness().workshares;
         let chain = self.chain.read();
         let mempool = self.mempool.lock();
         let tip = chain.tip();
+        let peer_count = self.connected_peers.lock().len();
+        let cpu_total = std::thread::available_parallelism().map_or(1, usize::from);
+        let mining_processes = if self.config.mining_threads == 0 {
+            cpu_total
+        } else {
+            self.config.mining_threads.min(cpu_total)
+        };
+        let hashrate = self.mining_stats.hashrate();
+        let window_start = chain
+            .blocks()
+            .len()
+            .saturating_sub(usize::try_from(consensus::REWARD_WINDOW).expect("window fits usize"));
+        let settled_workshares = chain.blocks()[window_start..]
+            .iter()
+            .flat_map(|block| block.workshare_witness.workshares.iter());
+        let active_miners = settled_workshares
+            .clone()
+            .chain(live_workshares.iter())
+            .map(|share| share.miner)
+            .collect::<HashSet<_>>()
+            .len();
+        let shares_in_window = settled_workshares.count() + live_workshares.len();
+        let blocks = chain.blocks();
+        let recent = &blocks[blocks.len().saturating_sub(31)..];
+        let avg_block_time = if recent.len() > 1 {
+            recent
+                .last()
+                .expect("nonempty")
+                .header
+                .timestamp
+                .saturating_sub(recent.first().expect("nonempty").header.timestamp)
+                as f64
+                / (recent.len() - 1) as f64
+        } else {
+            consensus::TARGET_BLOCK_TIME as f64
+        };
+        let estimated_hashrate = if recent.len() > 1 {
+            let span = recent
+                .last()
+                .expect("nonempty")
+                .header
+                .timestamp
+                .saturating_sub(recent.first().expect("nonempty").header.timestamp);
+            if span == 0 {
+                0.0
+            } else {
+                recent
+                    .iter()
+                    .skip(1)
+                    .filter_map(|block| consensus::bits_to_target(block.header.bits))
+                    .map(consensus::target_work)
+                    .map(work_as_f64)
+                    .sum::<f64>()
+                    / span as f64
+            }
+        } else {
+            0.0
+        };
+        let emitted_supply = scheduled_supply(chain.height());
+        let circulating_supply = chain
+            .state()
+            .accounts()
+            .values()
+            .map(|account| account.balance)
+            .fold(0_u64, u64::saturating_add);
+        let next_height = chain.height().saturating_add(1);
+        let next_block_reward = consensus::block_subsidy(next_height);
+        let blocks_until_halving = consensus::HALVING_INTERVAL
+            - next_height.saturating_sub(1) % consensus::HALVING_INTERVAL;
+        let annual_inflation = if circulating_supply == 0 {
+            0.0
+        } else {
+            let blocks_per_year = 365 * 24 * 60 * 60 / consensus::TARGET_BLOCK_TIME;
+            blocks_per_year as f64 * next_block_reward as f64 / circulating_supply as f64 * 100.0
+        };
+        let blocks_found = self.config.miner_address.map_or(0, |address| {
+            u64::try_from(
+                chain
+                    .blocks()
+                    .iter()
+                    .filter_map(|block| block.reward_claim.as_ref())
+                    .filter(|claim| claim.finder == address)
+                    .count(),
+            )
+            .unwrap_or(u64::MAX)
+        });
+        let cumulative_work = format!("{:064x}", chain.cumulative_work());
+        let next_bits = consensus::required_bits(tip.header.height, tip.header.timestamp);
+        let difficulty = consensus::bits_to_target(next_bits)
+            .map_or(0.0, |target| work_as_f64(consensus::target_work(target)));
+        let tip_difficulty = consensus::bits_to_target(tip.header.bits)
+            .map_or(0.0, |target| work_as_f64(consensus::target_work(target)));
         NodeStatus {
-            status: "online",
+            status: if self.is_enabled() {
+                "online"
+            } else {
+                "stopped"
+            },
             node_version: consensus::NODE_VERSION,
             protocol_version: consensus::PROTOCOL_VERSION,
             chain_id: consensus::CHAIN_ID,
             height: chain.height(),
             best_block_hash: tip.id(),
             state_root: chain.state().root(),
-            cumulative_work: format!("{:064x}", chain.cumulative_work()),
+            cumulative_work: cumulative_work.clone(),
+            chain_work: cumulative_work,
             difficulty_bits: format!("{:08x}", tip.header.bits),
-            next_bits: format!(
-                "{:08x}",
-                consensus::required_bits(tip.header.height, tip.header.timestamp)
-            ),
+            bits: format!("{next_bits:08x}"),
+            tip_bits: format!("{:08x}", tip.header.bits),
+            next_bits: format!("{next_bits:08x}"),
             target_block_time: consensus::TARGET_BLOCK_TIME,
             workshare_target_seconds: consensus::TARGET_BLOCK_TIME
                 / consensus::WORKSHARE_TARGET_MULTIPLIER,
             reward_window: consensus::REWARD_WINDOW,
             finder_share_percent: consensus::FINDER_SHARE_PERCENT,
             reward_maturity: consensus::REWARD_MATURITY,
+            shares_in_window,
             mempool_transactions: mempool.len(),
+            mempool_size: mempool.len(),
             mempool_bytes: mempool.bytes(),
-            live_workshares: self.workshares.lock().witness().workshares.len(),
-            connected_peers: self.connected_peers.lock().len(),
+            live_workshares: live_workshares.len(),
+            connected_peers: peer_count,
+            peer_count,
+            network_nodes: peer_count.saturating_add(1),
+            active_miners,
+            node_enabled: self.is_enabled(),
             mining_enabled: self.config.mining_enabled,
+            mining_active: self.is_enabled() && self.config.mining_enabled,
+            miner_address: self.config.miner_address,
+            mining_processes,
+            mining_processes_config: self.config.mining_threads,
+            mining_intensity: self.config.mining_intensity,
+            cpu_total,
+            randomx_mode: self.config.randomx_mode,
+            randomx_fast_available: randomx_fast_available(),
+            hashrate,
+            network_hashrate: hashrate.max(estimated_hashrate),
+            estimated_hashrate,
+            node_shares_submitted: self.mining_stats.workshares(),
+            blocks_found,
+            blocks_found_local: self.mining_stats.blocks(),
+            difficulty,
+            tip_difficulty,
+            avg_block_time,
+            last_block_time: tip.header.timestamp,
+            circulating_supply,
+            next_block_reward,
+            min_subsidy: consensus::MIN_SUBSIDY,
+            halving_interval: consensus::HALVING_INTERVAL,
+            blocks_until_halving,
+            annual_inflation,
+            tail_emission: consensus::MIN_SUBSIDY > 0,
+            coin: consensus::COIN,
+            share_multiplier: consensus::WORKSHARE_TARGET_MULTIPLIER,
+            platform: format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH),
+            device_id: self.config.device_id.clone(),
+            device_name: self.config.device_name.clone(),
+            management_url: format!(
+                "http://{}.local:{}",
+                self.config.device_name,
+                self.config
+                    .management_bind
+                    .parse::<std::net::SocketAddr>()
+                    .map_or(5052, |address| address.port())
+            ),
             uptime_seconds: unix_time().saturating_sub(self.started_at),
-            emitted_supply: scheduled_supply(chain.height()),
+            emitted_supply,
         }
+    }
+
+    pub fn config_path(&self) -> &Path {
+        &self.config_path
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.node_enabled.load(Ordering::Acquire)
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        self.node_enabled.store(enabled, Ordering::Release);
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn mining_stats(&self) -> Arc<MiningStats> {
+        Arc::clone(&self.mining_stats)
+    }
+
+    pub fn recent_blocks(&self, limit: usize) -> Vec<Block> {
+        let chain = self.chain.read();
+        chain
+            .blocks()
+            .iter()
+            .rev()
+            .take(limit.min(100))
+            .cloned()
+            .collect()
+    }
+
+    pub fn mempool_transactions(&self) -> Vec<Transaction> {
+        let state = self.chain.read().state().clone();
+        self.mempool
+            .lock()
+            .select(&state, consensus::MAX_BLOCK_TRANSACTIONS)
+    }
+
+    pub fn transaction(&self, id: Hash32) -> Option<Transaction> {
+        self.mempool.lock().get(id).or_else(|| {
+            self.chain
+                .read()
+                .blocks()
+                .iter()
+                .flat_map(|block| block.transactions.iter())
+                .find(|transaction| transaction.id() == id)
+                .cloned()
+        })
+    }
+
+    pub fn address_history(
+        &self,
+        address: Address,
+        limit: usize,
+        offset: usize,
+    ) -> Vec<serde_json::Value> {
+        let chain = self.chain.read();
+        let height = chain.height();
+        let mut entries = Vec::new();
+        for transaction in self
+            .mempool
+            .lock()
+            .select(chain.state(), consensus::MAX_BLOCK_TRANSACTIONS)
+            .into_iter()
+            .rev()
+        {
+            let (direction, counterparty) = if transaction.sender == address {
+                ("out", transaction.recipient)
+            } else if transaction.recipient == address {
+                ("in", transaction.sender)
+            } else {
+                continue;
+            };
+            entries.push(serde_json::json!({
+                "txid": transaction.id(),
+                "direction": direction,
+                "counterparty": counterparty,
+                "amount": transaction.amount,
+                "fee": if direction == "out" { transaction.fee } else { 0 },
+                "timestamp": unix_time(),
+                "height": null,
+                "confirmations": 0,
+                "status": "pending",
+                "matured": true,
+            }));
+        }
+        for block in chain.blocks().iter().rev() {
+            if let Some(claim) = block
+                .reward_claim
+                .as_ref()
+                .filter(|claim| claim.finder == address)
+            {
+                entries.push(serde_json::json!({
+                    "txid": claim.id(),
+                    "direction": "reward",
+                    "amount": claim.amount,
+                    "fee": 0,
+                    "timestamp": block.header.timestamp,
+                    "height": block.header.height,
+                    "confirmations": height.saturating_sub(block.header.height).saturating_add(1),
+                    "status": "confirmed",
+                    "matured": height >= block.header.height.saturating_add(consensus::REWARD_MATURITY),
+                }));
+            }
+            for transaction in block.transactions.iter().rev() {
+                let (direction, counterparty) = if transaction.sender == address {
+                    ("out", transaction.recipient)
+                } else if transaction.recipient == address {
+                    ("in", transaction.sender)
+                } else {
+                    continue;
+                };
+                entries.push(serde_json::json!({
+                    "txid": transaction.id(),
+                    "direction": direction,
+                    "counterparty": counterparty,
+                    "amount": transaction.amount,
+                    "fee": if direction == "out" { transaction.fee } else { 0 },
+                    "timestamp": block.header.timestamp,
+                    "height": block.header.height,
+                    "confirmations": height.saturating_sub(block.header.height).saturating_add(1),
+                    "status": "confirmed",
+                    "matured": true,
+                }));
+            }
+        }
+        entries
+            .into_iter()
+            .skip(offset)
+            .take(limit.min(100))
+            .collect()
+    }
+
+    pub fn connected_peer_ids(&self) -> Vec<String> {
+        self.connected_peers
+            .lock()
+            .keys()
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    pub fn supply_state(&self) -> (u64, u64, usize, usize) {
+        let chain = self.chain.read();
+        let materialized = chain
+            .state()
+            .accounts()
+            .values()
+            .map(|account| account.balance)
+            .fold(0_u64, u64::saturating_add);
+        let outstanding = chain
+            .state()
+            .pending_rewards()
+            .values()
+            .copied()
+            .fold(0_u64, u64::saturating_add);
+        (
+            materialized,
+            outstanding,
+            chain.state().accounts().len(),
+            chain.state().pending_rewards().len(),
+        )
+    }
+
+    pub fn state_snapshot(&self) -> serde_json::Value {
+        let chain = self.chain.read();
+        let bytes = chain.state().consensus_encode();
+        serde_json::json!({
+            "format": "paritr-ledger-state-v1",
+            "snapshot_version": consensus::LedgerState::SNAPSHOT_VERSION,
+            "height": chain.height(),
+            "block_hash": chain.tip().id(),
+            "state_root": chain.state().root(),
+            "consensus_base64": base64::engine::general_purpose::STANDARD.encode(bytes),
+        })
+    }
+
+    pub fn mining_distribution(&self, address: Option<Address>) -> (usize, usize, usize) {
+        let chain = self.chain.read();
+        let start = chain
+            .blocks()
+            .len()
+            .saturating_sub(usize::try_from(consensus::REWARD_WINDOW).expect("window fits usize"));
+        let live = self.workshares.lock().witness();
+        let shares = chain.blocks()[start..]
+            .iter()
+            .flat_map(|block| block.workshare_witness.workshares.iter())
+            .chain(live.workshares.iter());
+        let miners = shares
+            .clone()
+            .map(|share| share.miner)
+            .collect::<HashSet<_>>()
+            .len();
+        let total = shares.clone().count();
+        let own = address.map_or(0, |wanted| {
+            shares.filter(|share| share.miner == wanted).count()
+        });
+        (total, own, miners)
+    }
+
+    pub fn next_workshare_entitlement(&self, address: Address) -> u64 {
+        let chain = self.chain.read();
+        reward_allocation(chain.height().saturating_add(1), address, 0, chain.blocks())
+            .ok()
+            .and_then(|allocation| {
+                allocation
+                    .workshare_rewards
+                    .into_iter()
+                    .find_map(|(candidate, amount)| (candidate == address).then_some(amount))
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn mining_rewards(&self, address: Address) -> (u64, u64) {
+        let chain = self.chain.read();
+        let total = chain
+            .blocks()
+            .iter()
+            .filter_map(|block| block.reward_claim.as_ref())
+            .filter(|claim| claim.finder == address)
+            .map(|claim| claim.amount)
+            .fold(0_u64, u64::saturating_add);
+        (total, chain.state().pending_for(address))
     }
 
     pub fn account(&self, address: Address) -> (consensus::Account, u64) {
@@ -297,6 +713,38 @@ impl Node {
         (
             chain.state().account(address),
             chain.state().pending_for(address),
+        )
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn account_view(&self, address: Address) -> (consensus::Account, u64, u64, u64, u64) {
+        let chain = self.chain.read();
+        let account = chain.state().account(address);
+        let pending_rewards = chain.state().pending_for(address);
+        let selected = self
+            .mempool
+            .lock()
+            .select(chain.state(), consensus::MAX_BLOCK_TRANSACTIONS);
+        let mut pending_in = 0_u64;
+        let mut pending_out = 0_u64;
+        let mut next_nonce = account.nonce;
+        for transaction in selected {
+            if transaction.recipient == address {
+                pending_in = pending_in.saturating_add(transaction.amount);
+            }
+            if transaction.sender == address {
+                pending_out = pending_out
+                    .saturating_add(transaction.amount)
+                    .saturating_add(transaction.fee);
+                next_nonce = next_nonce.max(transaction.nonce.saturating_add(1));
+            }
+        }
+        (
+            account,
+            pending_rewards,
+            pending_in,
+            pending_out,
+            next_nonce,
         )
     }
 
@@ -895,6 +1343,32 @@ fn unix_time() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+pub fn randomx_fast_available() -> bool {
+    if usize::BITS < 64 {
+        return false;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        const MINIMUM_KIB: u64 = 2_621_440; // 2.5 GiB leaves room for the OS and node.
+        if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+            if let Some(total) = meminfo.lines().find_map(|line| {
+                line.strip_prefix("MemTotal:")?
+                    .split_whitespace()
+                    .next()?
+                    .parse::<u64>()
+                    .ok()
+            }) {
+                return total >= MINIMUM_KIB;
+            }
+        }
+    }
+    true
+}
+
+pub(crate) fn work_as_f64(work: U256) -> f64 {
+    work.to_string().parse().unwrap_or(f64::MAX)
 }
 
 #[allow(dead_code)]

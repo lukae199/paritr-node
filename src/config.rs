@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{consensus::CHAIN_ID, crypto::Address, pow::RandomXMode};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MiningMode {
     Light,
@@ -34,9 +34,11 @@ pub struct Config {
     pub network: String,
     pub public_bind: String,
     pub admin_bind: String,
+    pub management_bind: String,
     pub data_dir: PathBuf,
     pub randomx_library: Option<PathBuf>,
     pub randomx_mode: MiningMode,
+    pub node_enabled: bool,
     pub mining_enabled: bool,
     pub mining_threads: usize,
     pub mining_intensity: u8,
@@ -47,6 +49,8 @@ pub struct Config {
     pub max_outbound_peers: usize,
     pub public_url: Option<String>,
     pub admin_secret: String,
+    pub device_id: String,
+    pub device_name: String,
     pub node_private_key: String,
     pub portal_url: Option<String>,
     pub portal_agent_id: Option<String>,
@@ -56,13 +60,16 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let device_id = random_hex(16);
         Self {
             network: CHAIN_ID.to_owned(),
             public_bind: "0.0.0.0:5050".to_owned(),
             admin_bind: "127.0.0.1:5051".to_owned(),
+            management_bind: "0.0.0.0:5052".to_owned(),
             data_dir: PathBuf::from("data"),
             randomx_library: None,
             randomx_mode: MiningMode::Light,
+            node_enabled: true,
             mining_enabled: false,
             mining_threads: 0,
             mining_intensity: 100,
@@ -73,6 +80,8 @@ impl Default for Config {
             max_outbound_peers: 16,
             public_url: None,
             admin_secret: random_hex(24),
+            device_name: format!("pnode-{}", &device_id[..8]),
+            device_id,
             node_private_key: valid_secret_hex(),
             portal_url: None,
             portal_agent_id: None,
@@ -117,6 +126,9 @@ impl Config {
         if !admin.ip().is_loopback() {
             bail!("admin_bind must remain on loopback; use the outbound portal agent for remote control");
         }
+        self.management_bind
+            .parse::<std::net::SocketAddr>()
+            .context("management_bind must be an IP socket address")?;
         if !(5..=100).contains(&self.mining_intensity) {
             bail!("mining_intensity must be between 5 and 100");
         }
@@ -137,6 +149,17 @@ impl Config {
         if hex::decode(&self.admin_secret).map_or(true, |bytes| bytes.len() < 24) {
             bail!("admin_secret must contain at least 24 random bytes as hexadecimal");
         }
+        if self.device_id.len() != 32
+            || !self
+                .device_id
+                .bytes()
+                .all(|value| value.is_ascii_hexdigit())
+        {
+            bail!("device_id must contain exactly 16 random bytes as hexadecimal");
+        }
+        if !valid_device_name(&self.device_name) {
+            bail!("device_name must use 1-63 lowercase letters, digits or interior hyphens");
+        }
         let secret = hex::decode(&self.node_private_key).context("node_private_key must be hex")?;
         secp256k1::SecretKey::from_slice(&secret).context("node_private_key is invalid")?;
         Ok(())
@@ -156,6 +179,17 @@ impl Config {
         set_private_permissions(path)?;
         Ok(())
     }
+}
+
+pub fn valid_device_name(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= 63
+        && bytes.first().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes.last().is_some_and(u8::is_ascii_alphanumeric)
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-')
 }
 
 fn validate_https_url(value: Option<&str>, field: &str) -> anyhow::Result<()> {

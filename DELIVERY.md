@@ -12,6 +12,11 @@
   Verwaltungsskript sowie zur Release-Compose-Datei gehört eine `.sha256`-Datei;
 - `INSTALLATION.md`: vollständige Benutzeranleitung.
 
+Die Plattformpakete enthalten keine alte `node.py`, keine Wallet-PHP-Dateien
+und keine Logo-Quelldateien. Die Browser-Verwaltung ist direkt in die
+Rust-Binärdatei eingebettet. Linux, macOS und Windows erhalten native x86-64-
+und ARM64-Pakete; das OCI-Image wird für Linux amd64/arm64 erzeugt.
+
 ## Build und Release
 
 - `.github/workflows/ci.yml`: Format-, Lint-, Plattform- und RandomX-Tests;

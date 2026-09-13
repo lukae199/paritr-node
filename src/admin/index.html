@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="no-referrer">
+  <title>Paritr Node</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="mark">P</span><div><b>Paritr Node</b><small id="identity">Lokale Verwaltung</small></div></div>
+    <span class="pill" id="online">Verbindung wird geprüft …</span>
+  </header>
+  <main>
+    <section class="hero">
+      <div><p class="eyebrow">PARITR PROTOCOL 9</p><h1>Deine Node. Übersichtlich verwaltet.</h1><p>Diese Seite ist nur im lokalen Netzwerk vorgesehen. Private Keys oder Seed-Phrasen werden niemals benötigt.</p></div>
+      <div class="hero-actions"><button id="start" class="secondary">Node starten</button><button id="stop" class="danger">Node stoppen</button><button id="sync" class="secondary">Synchronisieren</button><button id="restart">Neu starten</button></div>
+    </section>
+
+    <section class="metrics" aria-label="Node-Status">
+      <article><span>Blockhöhe</span><strong id="height">—</strong></article>
+      <article><span>Peers</span><strong id="peers">—</strong></article>
+      <article><span>Hashrate</span><strong id="hashrate">—</strong></article>
+      <article><span>Laufzeit</span><strong id="uptime">—</strong></article>
+      <article><span>System</span><strong id="platform">—</strong></article>
+      <article><span>CPU-Nutzung</span><strong id="cpuUse">—</strong></article>
+    </section>
+
+    <div class="grid">
+      <section class="panel">
+        <div class="panel-head"><div><p class="eyebrow">MINING</p><h2>Leistung</h2></div><label class="switch"><input id="miningEnabled" type="checkbox"><span></span></label></div>
+        <label>Reward-Adresse<input id="minerAddress" autocomplete="off" spellcheck="false" placeholder="P…"></label>
+        <label>CPU-Threads <output id="threadsOut">Automatisch</output><input id="threads" type="range" min="0" max="1" value="0"></label>
+        <label>CPU-Intensität <output id="intensityOut">100 %</output><input id="intensity" type="range" min="5" max="100" step="5" value="100"></label>
+        <fieldset><legend>RandomX-Modus</legend><label class="choice"><input type="radio" name="mode" value="light"><span><b>Light</b><small>Wenig Speicher, universell verfügbar</small></span></label><label class="choice" id="fastChoice"><input type="radio" name="mode" value="fast"><span><b>Fast</b><small>Höhere Leistung, etwa 2,1 GiB RAM</small></span></label></fieldset>
+        <button id="saveMining">Mining-Einstellungen speichern</button>
+      </section>
+
+      <section class="panel">
+        <p class="eyebrow">GERÄT & NETZWERK</p><h2>Plug-and-Play</h2>
+        <label>Gerätename<input id="deviceName" pattern="[a-z0-9-]{1,63}" autocomplete="off"><small>Erreichbar als <code id="localUrl">—</code></small></label>
+        <label>Öffentliche HTTPS-Adresse (optional)<input id="publicUrl" type="url" placeholder="https://node.example.org"></label>
+        <button id="saveDevice">Gerätedaten speichern</button>
+        <hr>
+        <p class="eyebrow">WALLET-PORTAL</p><h2>Node koppeln</h2>
+        <p id="pairState" class="muted">Nicht gekoppelt</p>
+        <label>Portal-Adresse<input id="portalUrl" type="url" value="https://paritr.highactive.de"></label>
+        <label>Einmaliger Pairing-Code<input id="pairCode" autocomplete="off" spellcheck="false" placeholder="PRTR-XXXX-XXXX-XXXX"></label>
+        <div class="row"><button id="pair">Koppeln</button><button id="unpair" class="danger">Trennen</button></div>
+      </section>
+    </div>
+
+    <section class="panel logs-panel"><div class="panel-head"><div><p class="eyebrow">DIAGNOSE</p><h2>Node-Log</h2></div><button id="refreshLogs" class="secondary">Aktualisieren</button></div><pre id="logs">Noch keine Logdaten.</pre></section>
+    <section class="panel logs-panel"><div class="panel-head"><div><p class="eyebrow">SYSTEM</p><h2>Updates & Dienst</h2></div><button id="checkUpdate" class="secondary">Auf Updates prüfen</button></div><p id="updateState" class="muted">Installierte Version wird beim Prüfen mit dem öffentlichen Release-Kanal verglichen.</p><p>Start und Stop halten P2P und Mining an, während diese Verwaltungsseite erreichbar bleibt. Update-Befehl: <code id="updateCommand">manage update</code></p></section>
+    <p class="footer">Alternative Dienststeuerung: <code>manage.sh start|stop|restart</code> bzw. <code>manage.ps1 start|stop|restart</code>.</p>
+  </main>
+
+  <dialog id="login"><form method="dialog"><p class="eyebrow">LOKALE AUTHENTIFIZIERUNG</p><h2>Admin-Secret eingeben</h2><p>Das Secret wird nur für diese Browser-Sitzung gespeichert. Es steht nach der Installation im Terminal bzw. in der geschützten Konfiguration.</p><label>Admin-Secret<input id="secret" type="password" autocomplete="current-password" required></label><p id="loginError" class="error"></p><button id="loginButton" value="default">Verbinden</button></form></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

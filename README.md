@@ -9,20 +9,20 @@ Bereitstellung ist in [`deployment/README.md`](deployment/README.md) beschrieben
 Eine kompakte Dateiliste und die noch notwendigen Betreiberaktionen stehen in
 [`DELIVERY.md`](DELIVERY.md).
 
-Aktueller Stand: **4.0.0-rc.1**. Der Code ist vollständig ausführbar und getestet, aber vor einem wirtschaftlich relevanten Mainnet-Start sind ein unabhängiges Konsens-/Kryptografie-Audit und ein öffentlicher Mehrknoten-Test zwingend. „RC“ ist bewusst keine Behauptung, dass externe Prüfung bereits stattgefunden hat.
+Aktueller Stand: **4.0.1-rc.1**. Der Code ist vollständig ausführbar und getestet, aber vor einem wirtschaftlich relevanten Mainnet-Start sind ein unabhängiges Konsens-/Kryptografie-Audit und ein öffentlicher Mehrknoten-Test zwingend. „RC“ ist bewusst keine Behauptung, dass externe Prüfung bereits stattgefunden hat.
 
 ## Was P9 festlegt
 
-- neue Chain-ID `paritr-mainnet-p9`, Protocol `9`, fester neuer Genesis;
+- Chain-ID `paritr-mainnet`, Protocol `9`, fester neuer Genesis;
 - RandomX **v1.2.3** mit Start-Selbsttest gegen den offiziellen v1-Testvektor;
 - 64-Sekunden-Blöcke, deterministisches Integer-ASERT mit zwei Stunden Halbwertszeit;
-- Workshares bei 16-fach leichterem Ziel (erwartet etwa vier Sekunden), 95 % gleitender Pool / 5 % Finder plus Gebühren;
+- Workshares bei 32-fach leichterem Ziel (erwartet etwa zwei Sekunden), 95 % gleitender Pool / 5 % Finder plus Gebühren;
 - 1.440-Blöcke-Vergütungsfenster und 100 Blöcke Reifezeit;
 - Konten mit exakten Nonces, secp256k1-Low-S-Signaturen und P8-kompatiblen `P...`-Adressen;
 - 256-stufiger Sparse Merkle Tree für Konten und ausstehende Rewards;
 - deterministischer Little-Endian-Codec, authentifiziertes P2P, Header-/Block-Synchronisation;
 - SQLite `WAL` + `FULL`, atomare Chain-/State-Commits und vollständige Revalidierung beim Start;
-- getrennte öffentliche und ausschließlich lokale Admin-Schnittstellen; Remote-Verwaltung nur über den eingeschränkten ausgehenden Portal-Agenten.
+- öffentliche API auf 5050, lokale Admin-API auf 5051 und LAN-Verwaltungsseite auf 5052; Secret-geschützte Admin-Routen sind für direkte Nodes zusätzlich über deren HTTPS-Reverse-Proxy erreichbar, Remote-Verwaltung erfolgt bevorzugt über den eingeschränkten ausgehenden Portal-Agenten.
 
 Die verbindlichen Regeln stehen in [spec/PROTOCOL-9.md](spec/PROTOCOL-9.md), maschinenlesbare Konstanten in [spec/test-vectors.json](spec/test-vectors.json). Die ursprüngliche Planung bleibt in [markdown.md](markdown.md), die alte Python-Node ist nur eine eingefrorene Protocol-8-Referenz.
 
@@ -44,7 +44,7 @@ cargo build --release --locked
 .\install.ps1 -Address P... -Fast
 ```
 
-Ohne Mining-Adresse startet ein validierender Light-Node. Der Installer erzeugt `config.json` mit zufälligem Admin-Secret und Node-Schlüssel, führt den RandomX-Selbsttest sowie die Datenbank-/Chain-Prüfung aus und richtet den nativen Service ein. Bestehende P8-Dateien werden nicht gelöscht, sondern mit Zeitstempel gesichert.
+Ohne Mining-Adresse startet ein validierender Light-Node. Der Installer erzeugt `config.json` mit zufälligem Admin-Secret, dauerhafter Device-ID und Node-Schlüssel, führt den RandomX-Selbsttest sowie die Datenbank-/Chain-Prüfung aus und richtet den nativen Service ein. Nicht kompatible Vorabdaten werden nicht gelöscht, sondern mit Zeitstempel gesichert.
 
 ## Betrieb
 
@@ -54,7 +54,7 @@ Ohne Mining-Adresse startet ein validierender Light-Node. Der Installer erzeugt 
 ./manage.sh logs
 ```
 
-Unter Windows entsprechend `manage.ps1`. Die öffentliche API liegt standardmäßig auf Port 5050, die Admin-API ausschließlich auf `127.0.0.1:5051`. UPnP und Firewall-Änderungen erfolgen nie automatisch; der Installer öffnet Port 5050 nur mit `--open-firewall` beziehungsweise `-OpenFirewall`.
+Unter Windows entsprechend `manage.ps1`. Die öffentliche API liegt standardmäßig auf Port 5050, die Admin-API auf `127.0.0.1:5051` und die Secret-geschützte lokale Verwaltungsseite auf Port 5052. Port 5050 wird nur mit `--open-firewall` beziehungsweise `-OpenFirewall` freigegeben; 5052 und mDNS werden ausschließlich für private lokale Netze eingerichtet.
 
 Containerbetrieb:
 

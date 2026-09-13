@@ -7,10 +7,10 @@ der Pakete gilt zusätzlich `deployment/README.md`.
 
 | Plattform | `auto` verwendet | Alternativen |
 |---|---|---|
-| Linux x86-64/ARM64 | Docker Engine | native Binärdatei |
+| Linux x86-64/ARM64 | native Binärdatei | Docker Engine |
 | macOS Intel/Apple Silicon | native LaunchAgent-Node | Docker Desktop |
 | Windows 10/11 x64 | native Node | Docker Desktop mit WSL2 |
-| Windows 11 ARM64 | x64-Node unter Emulation | Docker nur bei unterstütztem Docker Desktop |
+| Windows 11 ARM64 | native ARM64-Node | Docker nur bei unterstütztem Docker Desktop |
 | Windows Server | native Node | kein Docker Desktop |
 | FreeBSD x86-64/ARM64 | native rc.d-Node | kein Docker-Pfad |
 
@@ -31,17 +31,40 @@ Windows PowerShell:
 irm https://paritr.highactive.de/downloads/bootstrap.ps1 | iex
 ```
 
-Der Assistent fragt nur relevante Werte ab:
-
-- Docker oder native Installation;
-- Mining ja/nein und nur dann eine öffentliche Paritr-Auszahlungsadresse;
-- Anzahl CPU-Worker, Intensität und RandomX light/fast;
-- optional Portal-URL und einmaligen Pairing-Code;
-- optional eine bereits vorhandene öffentliche HTTPS-Adresse;
-- optional die ausdrückliche Freigabe des öffentlichen TCP-Ports.
+Der Assistent fragt nur nach Docker oder nativer Installation; auf Linux ist
+die native Variante der Standard, damit mDNS ohne Container-Netzwerk-
+Sonderregeln funktioniert. Mining,
+Auszahlungsadresse, CPU-Leistung, RandomX Light/Fast, Gerätename, öffentliche
+Adresse und Wallet-Pairing werden anschließend im lokalen Browser eingerichtet.
 
 Der Installer fragt niemals nach Wallet-Seed, privatem Wallet-Schlüssel oder
 Node-Admin-Secret. Pairing benötigt keine eingehende Portfreigabe.
+
+## Lokale Browser-Verwaltung
+
+Am Ende der Installation werden die individuelle `.local`-Adresse und das
+zufällig erzeugte Admin-Secret einmal im Terminal angezeigt. Später lassen sich
+beide mit `manage.sh access` beziehungsweise `manage.ps1 access` erneut abrufen.
+Die Oberfläche ist normalerweise unter einer Adresse wie
+`http://pnode-a7f3c9e1.local:5052` erreichbar; auf demselben Gerät funktioniert
+immer `http://127.0.0.1:5052`.
+
+Die Browser-Seite zeigt Status, Höhe, Peers, Hashrate, Laufzeit und Logs. Dort
+lassen sich der Node-Betrieb starten/stoppen/neustarten sowie Mining, Threads,
+Intensität, Light/Fast, Reward-Adresse, Gerätename, öffentliche URL,
+Synchronisation und Portal-Pairing verwalten. Im gestoppten Zustand bleiben
+Verwaltungsseite und Portal-Agent erreichbar, während P2P und Mining ruhen. Das
+Admin-Secret verbleibt im `sessionStorage` des Browsers. Wallet-Seed und private
+Wallet-Schlüssel gehören niemals in die Node-Oberfläche.
+
+Für vorinstallierte Raspberry-/Orange-Pi-Geräte ist die native Installation zu
+verwenden: Nur so wird der individuelle Hostname direkt per mDNS/DNS-SD im LAN
+angekündigt. Jeder Erststart erzeugt eine dauerhaft gespeicherte 128-Bit-
+Device-ID und daraus einen kollisionsarmen Namen `pnode-xxxxxxxx.local`. Ein
+individuell gewählter Name wird vor dem Speichern per DNS-SD gegen andere
+Paritr-Nodes im LAN geprüft. Für vorinstallierte Geräte sollte das beim
+Provisionieren ausgegebene Admin-Secret auf einem Geräteaufkleber oder in einem
+separaten Übergabeprotokoll festgehalten werden.
 
 ## Nicht-interaktive Linux-Installation
 
@@ -97,18 +120,20 @@ Linux/macOS/FreeBSD:
 ~/paritr-node/manage.sh doctor
 ~/paritr-node/manage.sh backup
 ~/paritr-node/manage.sh update
+~/paritr-node/manage.sh access
 ~/paritr-node/manage.sh pair PRTR-CODE https://wallet.example
 ```
 
 Windows:
 
 ```powershell
-Set-Location "$env:LOCALAPPDATA\Paritr\node-p9"
+Set-Location "$env:LOCALAPPDATA\Paritr\node-mainnet"
 .\manage.ps1 status
 .\manage.ps1 logs
 .\manage.ps1 doctor
 .\manage.ps1 backup
 .\manage.ps1 update
+.\manage.ps1 access
 .\manage.ps1 pair PRTR-CODE https://wallet.example
 ```
 
@@ -125,7 +150,7 @@ praktisch Root-Rechte auf dem Host.
 
 ## Daten und Updates
 
-- Docker-Daten liegen im Volume `paritr-p9-data`.
+- Docker-Daten liegen im Volume `paritr-mainnet-data`.
 - Native Daten liegen im Installationsverzeichnis unter `data/`.
 - Eine erneute Installation übernimmt eine bestehende gültige P9-Konfiguration.
 - `backup` stoppt die Node kurz für eine konsistente Sicherung.

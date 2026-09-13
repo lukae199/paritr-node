@@ -18,11 +18,11 @@ Installer damit die festgelegte RandomX-Version abruft und deren Commit prüft.
 
 1. Repository nach GitHub übertragen und GitHub Actions sowie Packages erlauben.
 2. Einen signierten Tag passend zur Version in `Cargo.toml` erstellen, zum
-   Beispiel `v4.0.0-rc.1`.
+   Beispiel `v4.0.1-rc.1`.
 3. Den Tag pushen. `.github/workflows/release.yml` baut und testet:
    - Linux x86-64 und ARM64;
    - macOS Intel und Apple Silicon;
-   - Windows x64 (auf Windows ARM64 emuliert);
+   - Windows x64 und Windows ARM64 nativ;
    - das OCI-Image für `linux/amd64` und `linux/arm64`;
    - das Unix-Quellarchiv mit echten Unix-Rechten.
 4. Das Workflow signiert das Image schlüssellos mit Sigstore/Cosign und hängt
@@ -40,7 +40,7 @@ anschließend auf einem Linux-Rechner ausführen:
 
 ```bash
 chmod +x scripts/prepare-download-root.sh
-./scripts/prepare-download-root.sh 4.0.0-rc.1 ./release-assets ./download-root
+./scripts/prepare-download-root.sh 4.0.1-rc.1 ./release-assets ./download-root
 ```
 
 Das Skript verweigert unvollständige Releases und prüft zuerst `SHA256SUMS`.
@@ -49,7 +49,7 @@ Danach enthält `download-root`:
 ```text
 bootstrap.sh / bootstrap.ps1       stabile Einstiegspunkte
 setup.sh / setup.ps1               aktuelle geprüfte Assistenten
-v4.0.0-rc.1/                       unveränderliche Release-Dateien
+v4.0.1-rc.1/                       unveränderliche Release-Dateien
 STABLE                              aktuell freigegebene Version
 ```
 
@@ -57,7 +57,7 @@ Die äquivalente Vorbereitung unter Windows lautet:
 
 ```powershell
 .\scripts\prepare-download-root.ps1 `
-  -Version 4.0.0-rc.1 `
+  -Version 4.0.1-rc.1 `
   -ArtifactDirectory .\release-assets `
   -OutputDirectory .\download-root
 ```
@@ -84,8 +84,8 @@ Diese URLs müssen anschließend mit HTTP 200 erreichbar sein:
 https://paritr.highactive.de/downloads/setup.sh
 https://paritr.highactive.de/downloads/setup.sh.sha256
 https://paritr.highactive.de/downloads/setup.ps1
-https://paritr.highactive.de/downloads/v4.0.0-rc.1/release.env
-https://paritr.highactive.de/downloads/v4.0.0-rc.1/release.env.sha256
+https://paritr.highactive.de/downloads/v4.0.1-rc.1/release.env
+https://paritr.highactive.de/downloads/v4.0.1-rc.1/release.env.sha256
 ```
 
 ## 4. Öffentliche Installationsbefehle
@@ -129,7 +129,9 @@ und erst nach bestandenen Tests zum stabilen Einstiegspunkt gemacht.
 
 ## Plattformgrenzen
 
-- Linux ist der bevorzugte vollautomatische Docker-Host.
+- Linux x86-64/ARM64 verwendet standardmäßig die native Installation. Dadurch
+  funktioniert die mDNS-Adresse ohne Docker-Netzwerk-Sonderfälle. Docker bleibt
+  mit `--deployment docker` vollständig unterstützt.
 - Windows 10/11 kann Docker Desktop mit WSL2 verwenden; ein Neustart kann nötig
   sein. Windows Server verwendet die native Node.
 - macOS verwendet standardmäßig die native LaunchAgent-Installation; Docker

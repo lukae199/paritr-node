@@ -16,6 +16,12 @@ for required in bootstrap.sh bootstrap.ps1 setup.sh setup.ps1 install.sh install
   [[ -f "$ARTIFACT_DIR/$required" ]] || { echo "Missing release asset: $required" >&2; exit 1; }
 done
 
+image_ref="$(sed -nE 's/^PARITR_IMAGE_REF=([^[:space:]]+)$/\1/p' "$ARTIFACT_DIR/release.env" | head -n 1)"
+[[ "$image_ref" =~ ^[a-z0-9._/-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$ ]] || {
+  echo "release.env does not contain a valid digest-pinned image reference" >&2
+  exit 1
+}
+
 (
   cd "$ARTIFACT_DIR"
   sha256sum -c SHA256SUMS

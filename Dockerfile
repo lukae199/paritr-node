@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/*
 RUN git clone --quiet --depth 1 --branch "$RANDOMX_TAG" https://github.com/tevador/RandomX.git /randomx \
     && test "$(git -C /randomx rev-parse HEAD)" = "$RANDOMX_COMMIT" \
-    && cmake -S /randomx -B /randomx/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON \
+    && cmake -S /randomx -B /randomx/build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DCMAKE_SHARED_LINKER_FLAGS="-Wl,-z,noexecstack" \
     && cmake --build /randomx/build --config Release --parallel
 
 FROM debian:bookworm-slim
@@ -26,7 +26,7 @@ ENV PARITR_RANDOMX_LIBRARY=/usr/local/lib/librandomx.so
 WORKDIR /var/lib/paritr
 RUN chown -R paritr:paritr /var/lib/paritr
 USER 10001:10001
-EXPOSE 5050
+EXPOSE 5050 5052
 VOLUME ["/var/lib/paritr"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD curl -fsS http://127.0.0.1:5050/health || exit 1
 ENTRYPOINT ["paritr-node", "--config", "/var/lib/paritr/config.json"]

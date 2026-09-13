@@ -38,6 +38,17 @@ impl MiningStats {
     pub fn workshares(&self) -> u64 {
         self.workshares.load(Ordering::Relaxed)
     }
+
+    #[allow(clippy::cast_precision_loss)]
+    pub fn hashrate(&self) -> f64 {
+        let started = self.started_millis.load(Ordering::Relaxed);
+        let elapsed = unix_millis().saturating_sub(started);
+        if started == 0 || elapsed == 0 {
+            0.0
+        } else {
+            self.hashes() as f64 * 1_000.0 / elapsed as f64
+        }
+    }
 }
 
 pub struct MiningController {
@@ -58,7 +69,7 @@ impl MiningController {
         }
         .max(1);
         let stop = Arc::new(AtomicBool::new(false));
-        let stats = Arc::new(MiningStats::default());
+        let stats = node.mining_stats();
         stats.started_millis.store(unix_millis(), Ordering::Relaxed);
         let mut handles = Vec::with_capacity(threads);
         for worker_id in 0..threads {
@@ -91,6 +102,10 @@ impl MiningController {
 fn mine_loop(worker_id: usize, node: &Node, stop: &AtomicBool, stats: &MiningStats) {
     let intensity = node.config.mining_intensity;
     while !stop.load(Ordering::Relaxed) {
+        if !node.is_enabled() {
+            std::thread::sleep(Duration::from_millis(250));
+            continue;
+        }
         let extranonce = rand::rngs::OsRng.next_u64() ^ worker_id as u64;
         let candidate = match node.mining_candidate(extranonce) {
             Ok(candidate) => candidate,
@@ -114,6 +129,7 @@ fn mine_loop(worker_id: usize, node: &Node, stop: &AtomicBool, stats: &MiningSta
 
         loop {
             if stop.load(Ordering::Relaxed)
+                || !node.is_enabled()
                 || node.generation() != candidate.generation
                 || started.elapsed() > Duration::from_secs(MAX_FUTURE_BLOCK_TIME / 2)
             {

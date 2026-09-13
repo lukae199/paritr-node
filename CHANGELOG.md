@@ -1,5 +1,14 @@
 # Changelog
 
+## 4.0.1-rc.1 — Protocol 9
+
+- Wallet-Portal-Pairing und Agent-Relay auf Protocol 9 vereinheitlicht.
+- Lokale, mDNS-erreichbare Verwaltungsoberfläche für Status, Einrichtung und
+  persistenten Start/Stop/Restart von P2P und Mining.
+- RandomX Light/Fast über Node und WebApp konfigurierbar.
+- Workshare-Multiplikator 32 und Chain-ID `paritr-mainnet`.
+- Native Windows-ARM64-Artefakte und Linux-`noexecstack`-Prüfung ergänzt.
+
 ## 4.0.0-rc.1 — Protocol 9
 
 - vollständiger Rust-Neuaufbau und neuer fester Genesis;

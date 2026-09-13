@@ -4,6 +4,7 @@ pub mod codec;
 pub mod config;
 pub mod consensus;
 pub mod crypto;
+pub mod mdns;
 pub mod mempool;
 pub mod miner;
 pub mod node;

@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn workshare_target_is_sixteen_times_easier() {
+    fn workshare_target_uses_consensus_multiplier() {
         let bits = target_to_bits(initial_target());
         let share = bits_to_target(workshare_bits(bits).unwrap()).unwrap();
         let block = bits_to_target(bits).unwrap();

@@ -5,8 +5,8 @@
 > [`INSTALLATION.md`](INSTALLATION.md). Die folgenden Abschnitte dokumentieren
 > weiterhin die manuelle Quellcode- und Plattforminstallation.
 
-Diese Anleitung verwendet den Rust-Node `4.0.0-rc.1` und das neue Netzwerk
-`paritr-mainnet-p9`. Protocol 9 ist ein vollständiger Neustart. Alte
+Diese Anleitung verwendet den Rust-Node `4.0.1-rc.1` und das neue Netzwerk
+`paritr-mainnet`. Protocol 9 ist ein vollständiger Neustart. Alte
 Protocol-8-Daten dürfen nicht als P9-Chainstate verwendet werden; die Installer
 sichern erkannte P8-Daten automatisch.
 
@@ -53,8 +53,8 @@ Das bereits mit neutralen Unix-Verzeichnisrechten erzeugte Übertragungspaket
 heißt:
 
 ```text
-paritr-p9-linux-source-v2.tar.gz
-paritr-p9-linux-source-v2.tar.gz.sha256
+paritr-node-4.0.1-rc.1-source.tar.gz
+paritr-node-4.0.1-rc.1-source.tar.gz.sha256
 ```
 
 Das Archiv anschließend beispielsweise mit WinSCP oder `scp` auf den
@@ -62,11 +62,11 @@ Linux-Rechner übertragen und dort entpacken:
 
 ```bash
 cd ~
-sha256sum -c paritr-p9-linux-source-v2.tar.gz.sha256
-mkdir -p ~/paritr-p9-source-v2
-tar -xzf ~/paritr-p9-linux-source-v2.tar.gz -C ~/paritr-p9-source-v2
-chmod +x ~/paritr-p9-source-v2/install.sh ~/paritr-p9-source-v2/manage.sh
-cd ~/paritr-p9-source-v2
+sha256sum -c paritr-node-4.0.1-rc.1-source.tar.gz.sha256
+mkdir -p ~/paritr-mainnet-source
+tar -xzf ~/paritr-node-4.0.1-rc.1-source.tar.gz -C ~/paritr-mainnet-source --strip-components=1
+chmod +x ~/paritr-mainnet-source/install.sh ~/paritr-mainnet-source/manage.sh
+cd ~/paritr-mainnet-source
 ```
 
 Das ältere Archiv ohne `-v2` wurde direkt aus einem OneDrive-Verzeichnis
@@ -111,7 +111,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 Die Standardinstallation liegt danach in:
 
 ```text
-%LOCALAPPDATA%\Paritr\node-p9
+%LOCALAPPDATA%\Paritr\node-mainnet
 ```
 
 Der Installer kompiliert den Rust-Node, baut die festgeschriebene
@@ -138,14 +138,14 @@ verwenden. `-Fast` und `-Light` dürfen nicht gemeinsam angegeben werden.
 ### 4. Status und Logs prüfen
 
 ```powershell
-Set-Location "$env:LOCALAPPDATA\Paritr\node-p9"
+Set-Location "$env:LOCALAPPDATA\Paritr\node-mainnet"
 .\manage.ps1 check
 .\manage.ps1 status
 Invoke-RestMethod http://127.0.0.1:5050/health
 Invoke-RestMethod http://127.0.0.1:5050/status
 ```
 
-Erwartet werden Protocol `9`, Netzwerk `paritr-mainnet-p9` und bei einer ganz
+Erwartet werden Protocol `9`, Netzwerk `paritr-mainnet` und bei einer ganz
 frischen Chain Höhe `0` mit Genesis-ID:
 
 ```text

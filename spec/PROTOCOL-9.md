@@ -6,7 +6,7 @@ Status: release candidate 1. The words **MUST**, **MUST NOT**, **SHOULD** and **
 
 | Name | Value |
 |---|---|
-| Chain ID | ASCII `paritr-mainnet-p9` |
+| Chain ID | ASCII `paritr-mainnet` |
 | Protocol | unsigned 16-bit `9` |
 | Header version | unsigned 16-bit `3` |
 | Atomic units per PAR | `100000000` |
@@ -154,7 +154,7 @@ target  = clamp(target, 1, pow_limit)
 bits    = canonical_compact(target)
 ```
 
-Target block interval is 64 seconds; ASERT half-life is 7,200 seconds. Share target is the canonical compact target obtained from `block_target * 16`, clamped to `2^256-1`, giving about a four-second expected interval.
+Target block interval is 64 seconds; ASERT half-life is 7,200 seconds. Share target is the canonical compact target obtained from `block_target * 32`, clamped to `2^256-1`, giving about a two-second expected interval.
 
 `work(target) = floor((2^256 - 1 - target)/(target + 1)) + 1`. The valid chain with greatest sum of L1 block work is preferred. Workshares add no fork-choice work. Equal cumulative work chooses the lexicographically lower 32-byte tip ID. There is no consensus reorg-depth cap or emergency timestamp difficulty rule.
 

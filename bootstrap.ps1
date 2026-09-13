@@ -8,7 +8,7 @@ param(
     [string] $PublicUrl = '',
     [string] $PortalUrl = $env:PARITR_PORTAL_URL,
     [Alias('Pair')][string] $PairCode = '',
-    [string] $Dir = "$env:LOCALAPPDATA\Paritr\node-p9",
+    [string] $Dir = "$env:LOCALAPPDATA\Paritr\node-mainnet",
     [string] $Source = 'https://paritr.highactive.de/downloads',
     [ValidateRange(0,1024)][int] $Cores = 0,
     [ValidateRange(5,100)][int] $Intensity = 100,

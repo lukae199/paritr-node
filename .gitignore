@@ -1,6 +1,13 @@
 /target/
 /.toolchains/
 /data/
+/.webapp-stage/
+/dist/
+/release-assets/
+/paritr-download-root/
+/deployment/release.env
+/deployment/release.env.sha256
+/*.sha256
 /config.toml
 /config.json
 __pycache__/

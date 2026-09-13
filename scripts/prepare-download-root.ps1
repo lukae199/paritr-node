@@ -18,6 +18,12 @@ foreach ($name in $required) {
     if (-not (Test-Path -LiteralPath (Join-Path $ArtifactDirectory $name) -PathType Leaf)) { throw "Missing release asset: $name" }
 }
 
+$releaseEnvironment = Get-Content -LiteralPath (Join-Path $ArtifactDirectory 'release.env')
+$imageLine = $releaseEnvironment | Where-Object { $_ -match '^PARITR_IMAGE_REF=' } | Select-Object -First 1
+if (-not $imageLine -or $imageLine.Substring('PARITR_IMAGE_REF='.Length) -notmatch '^[a-z0-9._/-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$') {
+    throw 'release.env does not contain a valid digest-pinned image reference.'
+}
+
 foreach ($line in Get-Content -LiteralPath (Join-Path $ArtifactDirectory 'SHA256SUMS')) {
     if ($line -notmatch '^([0-9a-f]{64})\s+\*?(.+)$') { throw "Invalid SHA256SUMS line: $line" }
     $path = Join-Path $ArtifactDirectory $Matches[2]

@@ -9,7 +9,7 @@ param(
     [string] $PublicUrl = '',
     [string] $PortalUrl = $env:PARITR_PORTAL_URL,
     [Alias('Pair')][string] $PairCode = '',
-    [string] $Dir = "$env:LOCALAPPDATA\Paritr\node-p9",
+    [string] $Dir = "$env:LOCALAPPDATA\Paritr\node-mainnet",
     [string] $Source = 'https://paritr.highactive.de/downloads',
     [ValidateRange(0,1024)][int] $Cores = 0,
     [ValidateRange(5,100)][int] $Intensity = 100,
@@ -21,13 +21,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$NodeVersion = '4.0.0-rc.1'
+$NodeVersion = '4.0.1-rc.1'
 $ProtocolVersion = 9
-$ChainId = 'paritr-mainnet-p9'
+$ChainId = 'paritr-mainnet'
 $RandomXTag = 'v1.2.3'
 $RandomXCommit = '12f2c2ffe2108d6cf54c391fee33c8bc3646cdab'
-$TaskName = 'ParitrNodeP9'
-$Target = 'x86_64-pc-windows-msvc'
+$TaskName = 'ParitrNodeMainnet'
+$Target = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -eq 'Arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
 $Source = $Source.TrimEnd('/')
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
@@ -38,9 +38,9 @@ if ([bool]$PairCode -ne [bool]$PortalUrl) { throw 'PairCode and PortalUrl must b
 
 $osArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
 if ($osArchitecture -notin @('X64','Arm64')) {
-    throw "Unsupported Windows architecture $osArchitecture. A 64-bit x64 OS or Windows ARM64 with x64 emulation is required."
+    throw "Unsupported Windows architecture $osArchitecture. A 64-bit x64 or ARM64 operating system is required."
 }
-if ($osArchitecture -eq 'Arm64') { Write-Host 'Windows ARM64 detected: installing the supported x64-emulated bundle.' }
+if ($osArchitecture -eq 'Arm64') { Write-Host 'Windows ARM64 detected: installing the native ARM64 bundle.' }
 
 if (-not $AssumeYes) {
     if (-not $Address) { $Address = Read-Host 'Mining reward address (optional)' }
@@ -60,7 +60,7 @@ $Manage = Join-Path $Dir 'manage.ps1'
 $Data = Join-Path $Dir 'data'
 $Dll = Join-Path $Dir 'randomx.dll'
 $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$Temporary = Join-Path ([IO.Path]::GetTempPath()) ("paritr-p9-" + [Guid]::NewGuid().ToString('N'))
+$Temporary = Join-Path ([IO.Path]::GetTempPath()) ("paritr-mainnet-" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $Temporary | Out-Null
 
 function Invoke-Checked([string] $Program, [string[]] $Arguments) {
@@ -140,7 +140,7 @@ try {
     $mode = if ($Light) { 'light' } elseif ($Fast -or $Address) { 'fast' } else { 'light' }
     if (-not (Test-Path -LiteralPath $Config)) {
         $publicBindHost = if ($PublicUrl -or $OpenFirewall) { '0.0.0.0' } else { '127.0.0.1' }
-        $arguments = @('--config',$Config,'init','--public-bind',"${publicBindHost}:$Port",'--admin-bind','127.0.0.1:5051','--mining-threads',[string]$Cores,'--mining-intensity',[string]$Intensity,'--randomx-mode',$mode)
+        $arguments = @('--config',$Config,'init','--public-bind',"${publicBindHost}:$Port",'--admin-bind','127.0.0.1:5051','--management-bind','0.0.0.0:5052','--mining-threads',[string]$Cores,'--mining-intensity',[string]$Intensity,'--randomx-mode',$mode)
         if ($Address) { $arguments += @('--miner-address',$Address,'--enable-mining') }
         if ($PublicUrl) { $arguments += @('--public-url',$PublicUrl) }
         Invoke-Checked $Binary $arguments
@@ -191,10 +191,19 @@ Set-Location -LiteralPath '$escapedDir'
         } catch { Write-Warning 'Firewall rule could not be installed; run this script as Administrator or open the port manually.' }
     }
 
+    if (Test-Administrator) {
+        Get-NetFirewallRule -DisplayName 'Paritr local management' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+        Get-NetFirewallRule -DisplayName 'Paritr mDNS' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+        New-NetFirewallRule -DisplayName 'Paritr local management' -Direction Inbound -Protocol TCP -LocalPort 5052 -RemoteAddress LocalSubnet -Profile Private -Action Allow | Out-Null
+        New-NetFirewallRule -DisplayName 'Paritr mDNS' -Direction Inbound -Protocol UDP -LocalPort 5353 -RemoteAddress LocalSubnet -Profile Private -Action Allow | Out-Null
+    } else {
+        Write-Warning 'Run once as Administrator to open the local management and mDNS firewall rules for the Private network profile.'
+    }
+
     Write-Host "Installation complete: $Dir"
     Write-Host "Local API: http://127.0.0.1:$Port"
     Write-Host "Manage: cd `"$Dir`"; .\manage.ps1 status"
-    Write-Host 'Secrets remain in config.json and are not printed.'
+    Invoke-Checked $Binary @('--config',$Config,'admin-access')
 } finally {
     if (Test-Path -LiteralPath $Temporary) { Remove-Item -LiteralPath $Temporary -Recurse -Force }
 }

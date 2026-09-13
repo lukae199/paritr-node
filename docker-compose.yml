@@ -2,7 +2,7 @@ services:
   paritr-node:
     build:
       context: .
-    image: paritr-node:4.0.0-rc.1
+    image: paritr-node:4.0.1-rc.1
     restart: unless-stopped
     read_only: true
     cap_drop:
@@ -11,6 +11,7 @@ services:
       - no-new-privileges:true
     ports:
       - "5050:5050"
+      - "5052:5052"
     volumes:
       - paritr-data:/var/lib/paritr
     tmpfs:

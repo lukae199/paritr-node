@@ -1,9 +1,9 @@
 use primitive_types::U256;
 
-pub const NODE_VERSION: &str = "4.0.0-rc.1";
+pub const NODE_VERSION: &str = "4.0.1-rc.1";
 pub const PROTOCOL_VERSION: u16 = 9;
 pub const HEADER_VERSION: u16 = 3;
-pub const CHAIN_ID: &str = "paritr-mainnet-p9";
+pub const CHAIN_ID: &str = "paritr-mainnet";
 
 pub const COIN: u64 = 100_000_000;
 pub const INITIAL_SUBSIDY: u64 = 10 * COIN;
@@ -18,9 +18,9 @@ pub const ASERT_HALF_LIFE: i64 = 2 * 60 * 60;
 pub const MEDIAN_TIME_SPAN: usize = 11;
 pub const MAX_FUTURE_BLOCK_TIME: u64 = 300;
 
-// Four-second expected cadence. It is still frequent enough to smooth rewards,
-// while providing materially more propagation margin than Protocol 8's 1 s.
-pub const WORKSHARE_TARGET_MULTIPLIER: u64 = 16;
+// Two-second expected cadence. This smooths rewards while remaining bounded by
+// the witness count/size limits and does not alter the 64-second block target.
+pub const WORKSHARE_TARGET_MULTIPLIER: u64 = 32;
 pub const MAX_WORKSHARES_PER_BLOCK: usize = 512;
 pub const MAX_TEMPLATES_PER_BLOCK: usize = 512;
 pub const MAX_WORKSHARE_WITNESS_BYTES: usize = 4 * 1024 * 1024;

@@ -1,6 +1,6 @@
 {
   "format": "paritr-protocol-9-test-vectors-v1",
-  "chain_id": "paritr-mainnet-p9",
+  "chain_id": "paritr-mainnet",
   "protocol_version": 9,
   "header_version": 3,
   "codec": {
@@ -54,7 +54,7 @@
     "asert_half_life_seconds": 7200,
     "median_time_span": 11,
     "maximum_future_seconds": 300,
-    "workshare_target_multiplier": 16,
+    "workshare_target_multiplier": 32,
     "randomx_epoch_blocks": 2048,
     "randomx_seed_lag_blocks": 64
   }

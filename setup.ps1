@@ -11,7 +11,7 @@ param(
     [string] $PublicUrl = '',
     [string] $PortalUrl = $env:PARITR_PORTAL_URL,
     [Alias('Pair')][string] $PairCode = '',
-    [string] $Dir = "$env:LOCALAPPDATA\Paritr\node-p9",
+    [string] $Dir = "$env:LOCALAPPDATA\Paritr\node-mainnet",
     [string] $Source = 'https://paritr.highactive.de/downloads',
     [ValidateRange(0,1024)][int] $Cores = 0,
     [ValidateRange(5,100)][int] $Intensity = 100,
@@ -23,7 +23,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$NodeVersion = '4.0.0-rc.1'
+$NodeVersion = '4.0.1-rc.1'
 $ProtocolVersion = 9
 $PortWasSpecified = $PSBoundParameters.ContainsKey('Port')
 $Source = $Source.TrimEnd('/')
@@ -181,7 +181,7 @@ function Install-Container {
         if ($listenLine) { $listenHost = $listenLine.Substring('PARITR_LISTEN_HOST='.Length) }
     }
     if ($PublicUrl -or $OpenFirewall) { $listenHost = '0.0.0.0' }
-    @("PARITR_IMAGE_REF=$resolvedImage", "PARITR_LISTEN_HOST=$listenHost", "PARITR_PUBLIC_PORT=$Port") |
+    @("PARITR_IMAGE_REF=$resolvedImage", "PARITR_LISTEN_HOST=$listenHost", "PARITR_PUBLIC_PORT=$Port", "PARITR_MANAGEMENT_HOST=0.0.0.0", "PARITR_MANAGEMENT_PORT=5052") |
         Set-Content -LiteralPath (Join-Path $Dir '.env') -Encoding ASCII
     @("mode=docker", "version=$NodeVersion", "source=$Source") |
         Set-Content -LiteralPath (Join-Path $Dir '.paritr-deployment') -Encoding ASCII
@@ -192,7 +192,7 @@ function Install-Container {
     $hasConfig = $LASTEXITCODE -eq 0
     if (-not $hasConfig) {
         $mode = if ($Fast -or $Address) { 'fast' } else { 'light' }
-        $arguments = $compose + @('run','--rm','--no-deps','paritr-node','init','--public-bind','0.0.0.0:5050','--admin-bind','127.0.0.1:5051','--mining-threads',[string]$Cores,'--mining-intensity',[string]$Intensity,'--randomx-mode',$mode)
+        $arguments = $compose + @('run','--rm','--no-deps','paritr-node','init','--public-bind','0.0.0.0:5050','--admin-bind','127.0.0.1:5051','--management-bind','0.0.0.0:5052','--mining-threads',[string]$Cores,'--mining-intensity',[string]$Intensity,'--randomx-mode',$mode)
         if ($Address) { $arguments += @('--miner-address',$Address,'--enable-mining') }
         if ($PublicUrl) { $arguments += @('--public-url',$PublicUrl) }
         Invoke-Docker $arguments | Out-Null
@@ -206,6 +206,7 @@ function Install-Container {
     }
     Invoke-Docker ($compose + @('run','--rm','--no-deps','paritr-node','check')) | Out-Null
     if (-not $NoAutostart) { Invoke-Docker ($compose + @('up','-d','paritr-node')) | Out-Null }
+    Invoke-Docker ($compose + @('run','--rm','--no-deps','paritr-node','admin-access'))
 
     if ($OpenFirewall) {
         if (-not (Test-Administrator)) {
@@ -214,6 +215,12 @@ function Install-Container {
             Get-NetFirewallRule -DisplayName 'Paritr Protocol 9' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
             New-NetFirewallRule -DisplayName 'Paritr Protocol 9' -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -Profile Any | Out-Null
         }
+    }
+    if (Test-Administrator) {
+        Get-NetFirewallRule -DisplayName 'Paritr local management' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+        Get-NetFirewallRule -DisplayName 'Paritr mDNS' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+        New-NetFirewallRule -DisplayName 'Paritr local management' -Direction Inbound -Protocol TCP -LocalPort 5052 -RemoteAddress LocalSubnet -Profile Private -Action Allow | Out-Null
+        New-NetFirewallRule -DisplayName 'Paritr mDNS' -Direction Inbound -Protocol UDP -LocalPort 5353 -RemoteAddress LocalSubnet -Profile Private -Action Allow | Out-Null
     }
 }
 
@@ -230,23 +237,7 @@ try {
         Write-Host 'This wizard never asks for a wallet private key or seed phrase.'
         $chosen = Read-Host "Installation type [$Deployment] (native/docker)"
         if ($chosen) { $Deployment = $chosen.ToLowerInvariant() }
-        if (-not $Address -and (Read-YesNo 'Enable CPU mining?' $false)) {
-            $Address = Read-Host 'Paritr reward address (P...)'
-            $coresValue = Read-Host "Mining workers [$Cores] (0 = automatic)"
-            if ($coresValue) { $Cores = [int]$coresValue }
-            $intensityValue = Read-Host "CPU intensity [$Intensity]"
-            if ($intensityValue) { $Intensity = [int]$intensityValue }
-            $Fast = Read-YesNo 'Use RandomX fast mode (about 2.1 GiB)?' $true
-            $Light = -not $Fast
-        }
-        if (-not $PairCode -and (Read-YesNo 'Pair this node with the wallet portal?' $false)) {
-            if (-not $PortalUrl) { $PortalUrl = Read-Host 'Wallet portal HTTPS URL' }
-            $PairCode = Read-Host 'One-time pairing code'
-        }
-        if (-not $PublicUrl -and (Read-YesNo 'Advertise an existing public HTTPS node address?' $false)) {
-            $PublicUrl = Read-Host 'Public HTTPS URL'
-            $OpenFirewall = Read-YesNo "Open TCP port $Port in Windows Firewall?" $false
-        }
+        Write-Host 'Mining, wallet pairing and the device name are configured in the local browser after installation.'
     }
 
     if ($Deployment -notin @('docker','native')) { throw "Invalid deployment: $Deployment" }

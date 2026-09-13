@@ -385,7 +385,7 @@ Deine aktuelle Version hat:
 ```
 
 ```
-WORKSHARE_TARGET_MULTIPLIER = 64
+WORKSHARE_TARGET_MULTIPLIER = 32
 ```
 
 Bei:

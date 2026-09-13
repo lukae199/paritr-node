@@ -125,7 +125,7 @@ backup_installation() {
   backup_dir="${PARITR_BACKUP_DIR:-$NODE_DIR/backups}"
   mkdir -p "$backup_dir"
   stamp="$(date +%Y%m%d-%H%M%S)"
-  archive="$backup_dir/paritr-p9-$stamp.tar.gz"
+  archive="$backup_dir/paritr-mainnet-$stamp.tar.gz"
   is_running && was_running=1
   [[ "$was_running" -eq 0 ]] || service_action stop
   if [[ "$DEPLOYMENT" == docker ]]; then
@@ -200,6 +200,7 @@ case "$cmd" in
     exit "$result"
     ;;
   config) need_node; node_command show-config ;;
+  access) need_node; node_command admin-access ;;
   help|*)
     cat <<'TXT'
 Paritr Protocol 9 management
@@ -211,6 +212,7 @@ Paritr Protocol 9 management
   ./manage.sh pair <PAIRING-CODE> <https://portal.example>
   ./manage.sh unpair
   ./manage.sh config
+  ./manage.sh access
   ./manage.sh update
   ./manage.sh backup
 TXT

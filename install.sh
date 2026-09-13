@@ -2,9 +2,9 @@
 # Paritr Protocol 9 installer for Linux, macOS and FreeBSD.
 set -Eeuo pipefail
 
-NODE_VERSION="4.0.0-rc.1"
+NODE_VERSION="4.0.1-rc.1"
 PROTOCOL_VERSION="9"
-CHAIN_ID="paritr-mainnet-p9"
+CHAIN_ID="paritr-mainnet"
 RANDOMX_TAG="v1.2.3"
 RANDOMX_COMMIT="12f2c2ffe2108d6cf54c391fee33c8bc3646cdab"
 SOURCE_BASE="${PARITR_SOURCE:-https://paritr.highactive.de/downloads}"
@@ -106,10 +106,10 @@ mkdir -p "$NODE_DIR/lib"
 NODE_DIR="$(cd "$NODE_DIR" && pwd)"
 CONFIG="$NODE_DIR/config.json"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-if [[ -f "$CONFIG" ]] && ! grep -Eq '"network"[[:space:]]*:[[:space:]]*"paritr-mainnet-p9"' "$CONFIG"; then
-  mv "$CONFIG" "$NODE_DIR/config.p8-backup-$STAMP.json"
-  [[ ! -d "$NODE_DIR/data" ]] || mv "$NODE_DIR/data" "$NODE_DIR/data-p8-backup-$STAMP"
-  echo "Protocol-8 data was preserved as a timestamped backup."
+if [[ -f "$CONFIG" ]] && ! grep -Eq '"network"[[:space:]]*:[[:space:]]*"paritr-mainnet"' "$CONFIG"; then
+  mv "$CONFIG" "$NODE_DIR/config.pre-mainnet-backup-$STAMP.json"
+  [[ ! -d "$NODE_DIR/data" ]] || mv "$NODE_DIR/data" "$NODE_DIR/data-pre-mainnet-backup-$STAMP"
+  echo "Pre-mainnet data was preserved as a timestamped backup."
 fi
 
 TMP="$(mktemp -d)"
@@ -123,7 +123,9 @@ if [[ -f "$SCRIPT_DIR/Cargo.toml" && -d "$SCRIPT_DIR/src" ]]; then
   install -m 0755 "$SCRIPT_DIR/target/release/paritr-node" "$NODE_DIR/paritr-node"
   git clone --quiet --depth 1 --branch "$RANDOMX_TAG" https://github.com/tevador/RandomX.git "$TMP/RandomX"
   [[ "$(git -C "$TMP/RandomX" rev-parse HEAD)" == "$RANDOMX_COMMIT" ]] || { echo "RandomX tag identity mismatch" >&2; exit 1; }
-  cmake -S "$TMP/RandomX" -B "$TMP/RandomX/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DARCH=native >/dev/null
+  CMAKE_LINKER_FLAGS=()
+  [[ "$OS" != Linux ]] || CMAKE_LINKER_FLAGS+=("-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,noexecstack")
+  cmake -S "$TMP/RandomX" -B "$TMP/RandomX/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DARCH=native "${CMAKE_LINKER_FLAGS[@]}" >/dev/null
   cmake --build "$TMP/RandomX/build" --config Release --parallel >/dev/null
   RX="$(find "$TMP/RandomX/build" -type f \( -name 'librandomx.so' -o -name 'librandomx.dylib' \) | head -n 1)"
   [[ -n "$RX" ]] || { echo "RandomX shared library build failed" >&2; exit 1; }
@@ -153,7 +155,7 @@ fi
 if [[ ! -f "$CONFIG" ]]; then
   PUBLIC_BIND_HOST="127.0.0.1"
   [[ -z "$PUBLIC_URL" && "$OPEN_FIREWALL" -eq 0 ]] || PUBLIC_BIND_HOST="0.0.0.0"
-  INIT=("$NODE_DIR/paritr-node" --config "$CONFIG" init --public-bind "$PUBLIC_BIND_HOST:$PORT" --admin-bind "127.0.0.1:5051" --mining-threads "$CORES" --mining-intensity "$INTENSITY" --randomx-mode "$MODE")
+  INIT=("$NODE_DIR/paritr-node" --config "$CONFIG" init --public-bind "$PUBLIC_BIND_HOST:$PORT" --admin-bind "127.0.0.1:5051" --management-bind "0.0.0.0:5052" --mining-threads "$CORES" --mining-intensity "$INTENSITY" --randomx-mode "$MODE")
   [[ -z "$ADDRESS" ]] || INIT+=(--miner-address "$ADDRESS" --enable-mining)
   [[ -z "$PUBLIC_URL" ]] || INIT+=(--public-url "$PUBLIC_URL")
   "${INIT[@]}"
@@ -248,6 +250,20 @@ if [[ "$OPEN_FIREWALL" -eq 1 ]]; then
   else echo "Open TCP $PORT manually in the host firewall."; fi
 fi
 
+# The management UI and mDNS advertisement are LAN-only. When a supported
+# firewall is active, allow them only from private address ranges.
+if command -v ufw >/dev/null 2>&1 && as_root ufw status | grep -q '^Status: active'; then
+  for subnet in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do
+    as_root ufw allow from "$subnet" to any port 5052 proto tcp >/dev/null
+    as_root ufw allow from "$subnet" to any port 5353 proto udp >/dev/null
+  done
+elif command -v firewall-cmd >/dev/null 2>&1 && as_root firewall-cmd --state >/dev/null 2>&1; then
+  as_root firewall-cmd --permanent --zone=home --add-port=5052/tcp >/dev/null
+  as_root firewall-cmd --permanent --zone=home --add-port=5353/udp >/dev/null
+  as_root firewall-cmd --reload >/dev/null
+fi
+
 trap - EXIT
 cleanup
 echo "Installed in $NODE_DIR. Use $NODE_DIR/manage.sh status."
+"$NODE_DIR/paritr-node" --config "$CONFIG" admin-access
