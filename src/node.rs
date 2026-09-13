@@ -34,6 +34,7 @@ use crate::{
 };
 
 #[derive(Clone, Debug, Serialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct NodeStatus {
     pub status: &'static str,
     pub node_version: &'static str,
@@ -253,6 +254,7 @@ pub struct Node {
     events: broadcast::Sender<WireMessage>,
     generation: AtomicU64,
     mining_stats: Arc<MiningStats>,
+    #[allow(clippy::struct_field_names)]
     node_enabled: AtomicBool,
     started_at: u64,
 }

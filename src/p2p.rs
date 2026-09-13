@@ -392,6 +392,7 @@ pub enum PeerError {
     RateLimit,
 }
 
+#[allow(clippy::too_many_lines)]
 pub async fn serve_socket(mut socket: WebSocket, node: Arc<Node>) -> Result<(), PeerError> {
     if !node.is_enabled() {
         return Err(PeerError::Handshake);
