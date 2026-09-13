@@ -73,6 +73,7 @@ enum ModeArg {
 }
 
 #[tokio::main]
+#[allow(clippy::too_many_lines)]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command.unwrap_or(Command::Run) {
