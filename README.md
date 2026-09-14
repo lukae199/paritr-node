@@ -9,7 +9,7 @@ Bereitstellung ist in [`deployment/README.md`](deployment/README.md) beschrieben
 Eine kompakte Dateiliste und die noch notwendigen Betreiberaktionen stehen in
 [`DELIVERY.md`](DELIVERY.md).
 
-Aktueller Stand: **4.0.1-rc.2**. Der Code ist vollständig ausführbar und getestet, aber vor einem wirtschaftlich relevanten Mainnet-Start sind ein unabhängiges Konsens-/Kryptografie-Audit und ein öffentlicher Mehrknoten-Test zwingend. „RC“ ist bewusst keine Behauptung, dass externe Prüfung bereits stattgefunden hat.
+Aktueller Stand: **4.0.1-rc.3**. Der Code ist vollständig ausführbar und getestet, aber vor einem wirtschaftlich relevanten Mainnet-Start sind ein unabhängiges Konsens-/Kryptografie-Audit und ein öffentlicher Mehrknoten-Test zwingend. „RC“ ist bewusst keine Behauptung, dass externe Prüfung bereits stattgefunden hat.
 
 ## Was P9 festlegt
 

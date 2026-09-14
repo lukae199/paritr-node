@@ -5,7 +5,7 @@
 > [`INSTALLATION.md`](INSTALLATION.md). Die folgenden Abschnitte dokumentieren
 > weiterhin die manuelle Quellcode- und Plattforminstallation.
 
-Diese Anleitung verwendet den Rust-Node `4.0.1-rc.2` und das neue Netzwerk
+Diese Anleitung verwendet den Rust-Node `4.0.1-rc.3` und das neue Netzwerk
 `paritr-mainnet`. Protocol 9 ist ein vollständiger Neustart. Alte
 Protocol-8-Daten dürfen nicht als P9-Chainstate verwendet werden; die Installer
 sichern erkannte P8-Daten automatisch.
@@ -53,8 +53,8 @@ Das bereits mit neutralen Unix-Verzeichnisrechten erzeugte Übertragungspaket
 heißt:
 
 ```text
-paritr-node-4.0.1-rc.2-source.tar.gz
-paritr-node-4.0.1-rc.2-source.tar.gz.sha256
+paritr-node-4.0.1-rc.3-source.tar.gz
+paritr-node-4.0.1-rc.3-source.tar.gz.sha256
 ```
 
 Das Archiv anschließend beispielsweise mit WinSCP oder `scp` auf den
@@ -62,9 +62,9 @@ Linux-Rechner übertragen und dort entpacken:
 
 ```bash
 cd ~
-sha256sum -c paritr-node-4.0.1-rc.2-source.tar.gz.sha256
+sha256sum -c paritr-node-4.0.1-rc.3-source.tar.gz.sha256
 mkdir -p ~/paritr-mainnet-source
-tar -xzf ~/paritr-node-4.0.1-rc.2-source.tar.gz -C ~/paritr-mainnet-source --strip-components=1
+tar -xzf ~/paritr-node-4.0.1-rc.3-source.tar.gz -C ~/paritr-mainnet-source --strip-components=1
 chmod +x ~/paritr-mainnet-source/install.sh ~/paritr-mainnet-source/manage.sh
 cd ~/paritr-mainnet-source
 ```
@@ -149,7 +149,7 @@ Erwartet werden Protocol `9`, Netzwerk `paritr-mainnet` und bei einer ganz
 frischen Chain Höhe `0` mit Genesis-ID:
 
 ```text
-44f076c3b96c8e7cb49605d13d04177cadb1f2e44faf9f5f2c249b5da32b320f
+4824434908d3cc1100e56146b813b95770bf85ada235b55c690404b4ea02867c
 ```
 
 Logs verfolgen und Betrieb steuern:

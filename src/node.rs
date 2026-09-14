@@ -40,6 +40,7 @@ pub struct NodeStatus {
     pub node_version: &'static str,
     pub protocol_version: u16,
     pub chain_id: &'static str,
+    pub genesis_hash: Hash32,
     pub height: u64,
     pub best_block_hash: Hash32,
     pub state_root: Hash32,
@@ -236,6 +237,7 @@ impl WorksharePool {
 
 pub struct Node {
     pub config: Config,
+    runtime_mining: RwLock<Config>,
     config_path: PathBuf,
     storage: Arc<Storage>,
     pow: Arc<RandomX>,
@@ -266,7 +268,12 @@ impl Node {
         pow: Arc<RandomX>,
     ) -> anyhow::Result<Arc<Self>> {
         std::fs::create_dir_all(&config.data_dir)?;
-        let storage = Arc::new(Storage::open(&config.data_dir.join("chain.sqlite"))?);
+        // Isolate the approved new test chain without deleting or renaming the
+        // previous database, WAL files, wallet settings or portal credentials.
+        let database = config
+            .data_dir
+            .join(format!("chain-{}.sqlite", Block::genesis().id()));
+        let storage = Arc::new(Storage::open(&database)?);
         let stored = storage.load_active_blocks()?;
         let chain = if stored.is_empty() {
             let chain = Chain::genesis();
@@ -285,6 +292,7 @@ impl Node {
         pool.reset(chain.tip().id());
         let node_enabled = config.node_enabled;
         Ok(Arc::new(Self {
+            runtime_mining: RwLock::new(config.clone()),
             config,
             config_path,
             storage,
@@ -309,22 +317,32 @@ impl Node {
         self.identity_id
     }
 
+    pub fn mining_config(&self) -> Config {
+        self.runtime_mining.read().clone()
+    }
+
+    pub fn apply_mining_config(&self, config: Config) {
+        *self.runtime_mining.write() = config;
+        self.generation.fetch_add(1, Ordering::SeqCst);
+    }
+
     pub fn chain_snapshot(&self) -> consensus::ChainSnapshot {
         self.chain.read().snapshot()
     }
 
     #[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
     pub fn status(&self) -> NodeStatus {
+        let config = self.mining_config();
         let live_workshares = self.workshares.lock().witness().workshares;
         let chain = self.chain.read();
         let mempool = self.mempool.lock();
         let tip = chain.tip();
         let peer_count = self.connected_peers.lock().len();
         let cpu_total = std::thread::available_parallelism().map_or(1, usize::from);
-        let mining_processes = if self.config.mining_threads == 0 {
+        let mining_processes = if config.mining_threads == 0 {
             cpu_total
         } else {
-            self.config.mining_threads.min(cpu_total)
+            config.mining_threads.min(cpu_total)
         };
         let hashrate = self.mining_stats.hashrate();
         let window_start = chain
@@ -394,7 +412,7 @@ impl Node {
             let blocks_per_year = 365 * 24 * 60 * 60 / consensus::TARGET_BLOCK_TIME;
             blocks_per_year as f64 * next_block_reward as f64 / circulating_supply as f64 * 100.0
         };
-        let blocks_found = self.config.miner_address.map_or(0, |address| {
+        let blocks_found = config.miner_address.map_or(0, |address| {
             u64::try_from(
                 chain
                     .blocks()
@@ -406,11 +424,9 @@ impl Node {
             .unwrap_or(u64::MAX)
         });
         let cumulative_work = format!("{:064x}", chain.cumulative_work());
-        let next_bits = consensus::required_bits(tip.header.height, tip.header.timestamp);
-        let difficulty = consensus::bits_to_target(next_bits)
-            .map_or(0.0, |target| work_as_f64(consensus::target_work(target)));
-        let tip_difficulty = consensus::bits_to_target(tip.header.bits)
-            .map_or(0.0, |target| work_as_f64(consensus::target_work(target)));
+        let next_bits = consensus::next_bits(chain.blocks());
+        let difficulty = displayed_difficulty(next_bits);
+        let tip_difficulty = displayed_difficulty(tip.header.bits);
         NodeStatus {
             status: if self.is_enabled() {
                 "online"
@@ -420,6 +436,7 @@ impl Node {
             node_version: consensus::NODE_VERSION,
             protocol_version: consensus::PROTOCOL_VERSION,
             chain_id: consensus::CHAIN_ID,
+            genesis_hash: Block::genesis().id(),
             height: chain.height(),
             best_block_hash: tip.id(),
             state_root: chain.state().root(),
@@ -445,14 +462,14 @@ impl Node {
             network_nodes: peer_count.saturating_add(1),
             active_miners,
             node_enabled: self.is_enabled(),
-            mining_enabled: self.config.mining_enabled,
-            mining_active: self.is_enabled() && self.config.mining_enabled,
-            miner_address: self.config.miner_address,
+            mining_enabled: config.mining_enabled,
+            mining_active: self.is_enabled() && config.mining_enabled && hashrate > 0.0,
+            miner_address: config.miner_address,
             mining_processes,
-            mining_processes_config: self.config.mining_threads,
-            mining_intensity: self.config.mining_intensity,
+            mining_processes_config: config.mining_threads,
+            mining_intensity: config.mining_intensity,
             cpu_total,
-            randomx_mode: self.config.randomx_mode,
+            randomx_mode: config.randomx_mode,
             randomx_fast_available: randomx_fast_available(),
             hashrate,
             network_hashrate: hashrate.max(estimated_hashrate),
@@ -948,7 +965,7 @@ impl Node {
                 .ok_or(ConsensusError::MoneyRange)
         })?;
         let finder = self
-            .config
+            .mining_config()
             .miner_address
             .ok_or(ConsensusError::RewardMismatch)?;
         let allocation = reward_allocation(height, finder, fees, chain.blocks())?;
@@ -973,7 +990,7 @@ impl Node {
         let timestamp = unix_time()
             .max(parent.header.timestamp + 1)
             .max(consensus::validation::median_time_past(chain.blocks()) + 1);
-        let bits = consensus::required_bits(parent.header.height, parent.header.timestamp);
+        let bits = consensus::next_bits(chain.blocks());
         let header = BlockHeader {
             version: consensus::HEADER_VERSION,
             protocol: consensus::PROTOCOL_VERSION,
@@ -1355,6 +1372,18 @@ pub fn randomx_fast_available() -> bool {
     #[cfg(target_os = "linux")]
     {
         const MINIMUM_KIB: u64 = 2_621_440; // 2.5 GiB leaves room for the OS and node.
+        for path in [
+            "/sys/fs/cgroup/memory.max",
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+        ] {
+            if let Ok(limit) = std::fs::read_to_string(path) {
+                if let Ok(bytes) = limit.trim().parse::<u64>() {
+                    if bytes / 1024 < MINIMUM_KIB {
+                        return false;
+                    }
+                }
+            }
+        }
         if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
             if let Some(total) = meminfo.lines().find_map(|line| {
                 line.strip_prefix("MemTotal:")?
@@ -1372,6 +1401,12 @@ pub fn randomx_fast_available() -> bool {
 
 pub(crate) fn work_as_f64(work: U256) -> f64 {
     work.to_string().parse().unwrap_or(f64::MAX)
+}
+
+pub(crate) fn displayed_difficulty(bits: u32) -> f64 {
+    consensus::bits_to_target(bits).map_or(0.0, |target| {
+        work_as_f64(consensus::pow_limit()) / work_as_f64(target)
+    })
 }
 
 #[allow(dead_code)]

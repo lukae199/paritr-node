@@ -606,6 +606,8 @@
     }
 
 .brand-logo { width: 156px; height: auto; }
+.busy::after { content: ''; display: inline-block; width: 12px; height: 12px; margin-left: 8px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .brand div { flex-direction: column; gap: 2px; }
 .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .metrics strong { overflow-wrap: anywhere; }

@@ -2,9 +2,16 @@
   'use strict';
   const $ = (id) => document.getElementById(id);
   let secret = sessionStorage.getItem('paritrAdminSecret') || '';
+  const directSecret = new URLSearchParams(location.hash.slice(1)).get('secret');
+  if (directSecret && /^[0-9a-f]{48,}$/i.test(directSecret)) {
+    secret = directSecret;
+    sessionStorage.setItem('paritrAdminSecret', secret);
+    history.replaceState(null, '', location.pathname + location.search);
+  }
   let config = null;
   let editing = false;
   let loading = false;
+  let restartingUntil = 0;
 
   async function api(path, options = {}) {
     const response = await fetch(path, {
@@ -36,8 +43,10 @@
   }
 
   async function load() {
+    if (Date.now() < restartingUntil) return;
     const [status, current] = await Promise.all([api('/admin/status'), api('/admin/config')]);
     config = current;
+    $('online').classList.remove('busy');
     const running = status.node_enabled !== false;
     $('online').textContent = `${running ? 'Online' : 'Gestoppt'} · v${status.node_version}`;
     $('online').classList.toggle('ok', running);
@@ -50,6 +59,7 @@
     $('uptime').textContent = formatDuration(status.uptime_seconds);
     $('platform').textContent = status.platform || '—';
     $('cpuUse').textContent = `${Number(status.mining_processes || 0)} / ${Number(status.cpu_total || 0)} Threads`;
+    $('miningNotice').hidden = Boolean(current.miner_address);
     $('pairState').textContent = current.portal_paired ? 'Mit dem Wallet-Portal gekoppelt' : 'Noch nicht gekoppelt';
     $('unpair').disabled = !current.portal_paired;
     // Background status refresh must not overwrite unsaved form edits.
@@ -84,20 +94,37 @@
   }
 
   async function action(path, body, message) {
+    if (path === '/admin/mining' && body.mining_enabled && !body.miner_address) {
+      toast('Bitte zuerst eine Reward-Adresse hinterlegen. Ohne Adresse startet das Mining nicht.');
+      $('minerAddress').focus(); return;
+    }
+    const button = document.activeElement;
+    if (button?.tagName === 'BUTTON') { button.disabled = true; button.classList.add('busy'); }
     try {
-      await api(path, { method: 'POST', body: JSON.stringify(body || {}) });
+      const result = await api(path, { method: 'POST', body: JSON.stringify(body || {}) });
       if (['/admin/mining', '/admin/config', '/admin/pair', '/admin/unpair'].includes(path)) {
         editing = false;
         $('pairCode').value = '';
       }
-      toast(message);
+      if (result.restart_scheduled || path === '/admin/restart') {
+        restartingUntil = Date.now() + 4500;
+        $('online').textContent = 'Neustart läuft …';
+        $('online').classList.add('busy');
+        toast(message);
+      } else {
+        toast(result.restart_scheduled === false ? 'Einstellungen übernommen.' : message);
+        await load();
+      }
     }
     catch (error) { toast(error.message); }
+    finally { if (button?.tagName === 'BUTTON') { button.disabled = false; button.classList.remove('busy'); } }
   }
 
   async function loadLogs() {
+    $('refreshLogs').classList.add('busy');
     try { const data = await api('/admin/logs?limit=250'); $('logs').textContent = data.lines.join('\n') || 'Noch keine Logdaten.'; $('logs').scrollTop = $('logs').scrollHeight; }
     catch (error) { $('logs').textContent = error.message; }
+    finally { $('refreshLogs').classList.remove('busy'); }
   }
 
   async function checkUpdate() {
@@ -134,6 +161,7 @@
       catch (error) {
         $('online').textContent = 'Verbindung unterbrochen · Wiederverbinden …';
         $('online').classList.remove('ok');
+        $('online').classList.add('busy');
         $('start').disabled = true; $('stop').disabled = true;
       } finally { loading = false; }
     }, 5000);

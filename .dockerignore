@@ -6,3 +6,7 @@ config.json
 *.log
 *.sqlite*
 __pycache__
+dist
+release-assets
+.webapp-stage
+paritr-download-root

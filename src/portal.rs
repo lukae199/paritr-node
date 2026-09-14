@@ -48,6 +48,7 @@ pub async fn pair(config_path: &Path, portal: &str, code: &str) -> anyhow::Resul
         "code": code.trim().to_uppercase(),
         "device_id": config.device_id,
         "chain_id": consensus::CHAIN_ID,
+        "genesis_hash": consensus::Block::genesis().id(),
         "protocol_version": consensus::PROTOCOL_VERSION,
         "node_version": consensus::NODE_VERSION,
         "public_url": config.public_url,
@@ -158,6 +159,7 @@ async fn sync_once(
         .json(&serde_json::json!({
             "agent_id": agent,
             "chain_id": consensus::CHAIN_ID,
+            "genesis_hash": consensus::Block::genesis().id(),
             "protocol_version": consensus::PROTOCOL_VERSION,
             "node_version": consensus::NODE_VERSION,
             "public_url": node.config.public_url,

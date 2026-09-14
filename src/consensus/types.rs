@@ -503,7 +503,7 @@ mod tests {
         let genesis = Block::genesis();
         assert_eq!(
             genesis.id().to_string(),
-            "44f076c3b96c8e7cb49605d13d04177cadb1f2e44faf9f5f2c249b5da32b320f"
+            "4824434908d3cc1100e56146b813b95770bf85ada235b55c690404b4ea02867c"
         );
         assert_eq!(
             genesis.header.state_root,

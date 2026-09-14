@@ -290,6 +290,7 @@ pub struct RandomX {
     api: Arc<Api>,
     mode: RandomXMode,
     context: RwLock<Arc<Context>>,
+    initialization: Mutex<()>,
 }
 
 impl RandomX {
@@ -306,10 +307,20 @@ impl RandomX {
             api,
             mode,
             context: RwLock::new(context),
+            initialization: Mutex::new(()),
         })
     }
 
     fn context_for(&self, seed: &[u8]) -> Result<Arc<Context>, RandomXError> {
+        {
+            let current = self.context.read();
+            if current.seed == seed {
+                return Ok(Arc::clone(&current));
+            }
+        }
+        // Serialize expensive cache/dataset initialization. Concurrent workers
+        // must not each allocate a separate 2 GiB dataset for the same seed.
+        let _initialization = self.initialization.lock();
         {
             let current = self.context.read();
             if current.seed == seed {

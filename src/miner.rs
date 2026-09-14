@@ -24,6 +24,7 @@ pub struct MiningStats {
     blocks: AtomicU64,
     workshares: AtomicU64,
     started_millis: AtomicU64,
+    last_hash_millis: AtomicU64,
 }
 
 impl MiningStats {
@@ -43,7 +44,10 @@ impl MiningStats {
     pub fn hashrate(&self) -> f64 {
         let started = self.started_millis.load(Ordering::Relaxed);
         let elapsed = unix_millis().saturating_sub(started);
-        if started == 0 || elapsed == 0 {
+        if started == 0
+            || elapsed == 0
+            || unix_millis().saturating_sub(self.last_hash_millis.load(Ordering::Relaxed)) > 60_000
+        {
             0.0
         } else {
             self.hashes() as f64 * 1_000.0 / elapsed as f64
@@ -58,16 +62,10 @@ pub struct MiningController {
 }
 
 impl MiningController {
-    pub fn start(node: &Arc<Node>) -> Option<Self> {
-        if !node.config.mining_enabled {
-            return None;
-        }
-        let threads = if node.config.mining_threads == 0 {
-            std::thread::available_parallelism().map_or(1, usize::from)
-        } else {
-            node.config.mining_threads
-        }
-        .max(1);
+    pub fn start(node: &Arc<Node>) -> Self {
+        // Idle workers sleep; enabling mining and changing the active worker
+        // count does not require restarting RPC, peers or the portal agent.
+        let threads = std::thread::available_parallelism().map_or(1, usize::from);
         let stop = Arc::new(AtomicBool::new(false));
         let stats = node.mining_stats();
         stats.started_millis.store(unix_millis(), Ordering::Relaxed);
@@ -84,11 +82,11 @@ impl MiningController {
             );
         }
         info!(threads, "RandomX mining started");
-        Some(Self {
+        Self {
             stop,
             handles,
             stats,
-        })
+        }
     }
 
     pub fn stop(mut self) {
@@ -100,9 +98,9 @@ impl MiningController {
 }
 
 fn mine_loop(worker_id: usize, node: &Node, stop: &AtomicBool, stats: &MiningStats) {
-    let intensity = node.config.mining_intensity;
     while !stop.load(Ordering::Relaxed) {
-        if !node.is_enabled() {
+        let settings = node.mining_config();
+        if !node.is_enabled() || !worker_enabled(worker_id, &settings) {
             std::thread::sleep(Duration::from_millis(250));
             continue;
         }
@@ -124,8 +122,6 @@ fn mine_loop(worker_id: usize, node: &Node, stop: &AtomicBool, stats: &MiningSta
         let started = Instant::now();
         let mut header = candidate.block.header.clone();
         let mut nonce = rand::rngs::OsRng.next_u64();
-        let mut burst_started = Instant::now();
-        let mut burst_hashes = 0_u64;
 
         loop {
             if stop.load(Ordering::Relaxed)
@@ -136,6 +132,7 @@ fn mine_loop(worker_id: usize, node: &Node, stop: &AtomicBool, stats: &MiningSta
                 break;
             }
             header.nonce = nonce;
+            let hash_started = Instant::now();
             let hash = match node
                 .pow()
                 .calculate(&candidate.seed, &header.consensus_encode())
@@ -148,7 +145,12 @@ fn mine_loop(worker_id: usize, node: &Node, stop: &AtomicBool, stats: &MiningSta
                 }
             };
             stats.hashes.fetch_add(1, Ordering::Relaxed);
-            burst_hashes += 1;
+            stats
+                .last_hash_millis
+                .store(unix_millis(), Ordering::Relaxed);
+            // Apply duty cycle even when every few hashes find a share. The
+            // former 64-hash burst was reset on each share and skipped throttling.
+            throttle(hash_started, settings.mining_intensity);
             let value = U256::from_little_endian(&hash);
             if value <= candidate.block_target {
                 let mut block = candidate.block.clone();
@@ -186,17 +188,25 @@ fn mine_loop(worker_id: usize, node: &Node, stop: &AtomicBool, stats: &MiningSta
                 break;
             }
             nonce = nonce.wrapping_add(1);
-
-            if burst_hashes >= 64 {
-                if intensity < 100 {
-                    let elapsed = burst_started.elapsed();
-                    let pause = elapsed.mul_f64(f64::from(100 - intensity) / f64::from(intensity));
-                    std::thread::sleep(pause.min(Duration::from_secs(2)));
-                }
-                burst_hashes = 0;
-                burst_started = Instant::now();
-            }
         }
+    }
+}
+
+fn worker_enabled(worker_id: usize, settings: &crate::config::Config) -> bool {
+    let threads = if settings.mining_threads == 0 {
+        std::thread::available_parallelism().map_or(1, usize::from)
+    } else {
+        settings.mining_threads
+    };
+    settings.mining_enabled && settings.miner_address.is_some() && worker_id < threads
+}
+
+fn throttle(started: Instant, intensity: u8) {
+    if intensity < 100 {
+        let pause = started
+            .elapsed()
+            .mul_f64(f64::from(100 - intensity) / f64::from(intensity));
+        std::thread::sleep(pause.min(Duration::from_secs(2)));
     }
 }
 

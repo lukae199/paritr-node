@@ -32,6 +32,7 @@
       <section class="panel">
         <div class="panel-head"><div><p class="eyebrow">MINING</p><h2>Leistung</h2></div><label class="switch"><input id="miningEnabled" type="checkbox" aria-label="Mining aktivieren"><span></span></label></div>
         <label>Reward-Adresse<input id="minerAddress" autocomplete="off" spellcheck="false" placeholder="P…"></label>
+        <p id="miningNotice" class="muted">Mining startet erst mit einer Reward-Adresse. Die Node kann bereits Blöcke synchronisieren.</p>
         <label>CPU-Threads <output id="threadsOut">Automatisch</output><input id="threads" type="range" min="0" max="1" value="0"></label>
         <label>CPU-Intensität <output id="intensityOut">100 %</output><input id="intensity" type="range" min="5" max="100" step="5" value="100"></label>
         <fieldset><legend>RandomX-Modus</legend><label class="choice"><input type="radio" name="mode" value="light"><span><b>Light</b><small>Wenig Speicher, universell verfügbar</small></span></label><label class="choice" id="fastChoice"><input type="radio" name="mode" value="fast"><span><b>Fast</b><small>Höhere Leistung, etwa 2,1 GiB RAM</small></span></label></fieldset>

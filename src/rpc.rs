@@ -678,11 +678,12 @@ async fn require_admin(
 }
 
 async fn admin_auth(State(node): State<Arc<Node>>) -> Json<serde_json::Value> {
+    let config = node.mining_config();
     Json(serde_json::json!({
         "authenticated": true,
         "node_version": consensus::NODE_VERSION,
-        "miner_address": node.config.miner_address,
-        "mining_enabled": node.config.mining_enabled,
+        "miner_address": config.miner_address,
+        "mining_enabled": config.mining_enabled,
         "node_enabled": node.is_enabled(),
         "public_url": node.config.public_url,
     }))
@@ -699,23 +700,24 @@ async fn admin_sync(State(node): State<Arc<Node>>) -> Result<Json<serde_json::Va
 }
 
 async fn admin_config(State(node): State<Arc<Node>>) -> Json<serde_json::Value> {
+    let config = node.mining_config();
     Json(serde_json::json!({
         "network": node.config.network,
         "public_bind": node.config.public_bind,
         "admin_bind": node.config.admin_bind,
         "management_bind": node.config.management_bind,
-        "randomx_mode": node.config.randomx_mode,
+        "randomx_mode": config.randomx_mode,
         "node_enabled": node.is_enabled(),
-        "mining_enabled": node.config.mining_enabled,
-        "mining_threads": node.config.mining_threads,
-        "mining_intensity": node.config.mining_intensity,
-        "miner_address": node.config.miner_address,
+        "mining_enabled": config.mining_enabled,
+        "mining_threads": config.mining_threads,
+        "mining_intensity": config.mining_intensity,
+        "miner_address": config.miner_address,
         "public_url": node.config.public_url,
         "portal_url": node.config.portal_url,
         "portal_paired": node.config.portal_agent_id.is_some(),
         "device_id": node.config.device_id,
         "device_name": node.config.device_name,
-        "restart_policy": "configuration changes restart the supervised node",
+        "restart_policy": "performance changes apply live; RandomX mode and device changes require restart",
     }))
 }
 
@@ -774,6 +776,12 @@ async fn admin_mining(
         config.mining_enabled = value;
     }
     if let Some(value) = update.mining_processes {
+        let maximum = std::thread::available_parallelism().map_or(1, usize::from);
+        if value > maximum {
+            return Err(ApiError::bad_request(
+                "Worker count exceeds available CPU threads",
+            ));
+        }
         config.mining_threads = value;
     }
     if let Some(value) = update.mining_intensity {
@@ -782,7 +790,7 @@ async fn admin_mining(
     if let Some(value) = update.randomx_mode {
         if value == MiningMode::Fast && !crate::node::randomx_fast_available() {
             return Err(ApiError::bad_request(
-                "RandomX fast mode requires a 64-bit operating system",
+                "RandomX fast mode requires a 64-bit operating system and sufficient RAM (including container limits)",
             ));
         }
         config.randomx_mode = value;
@@ -791,7 +799,11 @@ async fn admin_mining(
     config
         .save(node.config_path())
         .map_err(ApiError::bad_request)?;
-    schedule_restart();
+    let restart_scheduled = config.randomx_mode != node.config.randomx_mode;
+    node.apply_mining_config(config.clone());
+    if restart_scheduled {
+        schedule_restart();
+    }
     Ok(Json(serde_json::json!({
         "status": "success",
         "miner_address": config.miner_address,
@@ -802,7 +814,7 @@ async fn admin_mining(
         "randomx_mode": config.randomx_mode,
         "randomx_fast_available": crate::node::randomx_fast_available(),
         "cpu_total": std::thread::available_parallelism().map_or(1, usize::from),
-        "restart_scheduled": true,
+        "restart_scheduled": restart_scheduled,
     })))
 }
 
@@ -944,9 +956,7 @@ async fn admin_blocks(
         .recent_blocks(limit)
         .into_iter()
         .map(|block| {
-            let difficulty = consensus::bits_to_target(block.header.bits)
-                .map(consensus::target_work)
-                .map_or(0.0, crate::node::work_as_f64);
+            let difficulty = crate::node::displayed_difficulty(block.header.bits);
             serde_json::json!({
                 "height": block.header.height,
                 "hash": block.id(),

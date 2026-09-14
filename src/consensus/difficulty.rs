@@ -1,7 +1,7 @@
 use primitive_types::{U256, U512};
 
 use super::{
-    initial_target, pow_limit, ASERT_HALF_LIFE, GENESIS_TIMESTAMP, TARGET_BLOCK_TIME,
+    initial_target, pow_limit, Block, ASERT_HALF_LIFE, TARGET_BLOCK_TIME,
     WORKSHARE_TARGET_MULTIPLIER,
 };
 
@@ -50,9 +50,14 @@ pub fn bits_to_target(bits: u32) -> Option<U256> {
 /// The candidate's own timestamp never changes its target. This removes the
 /// Protocol-8 emergency-rule incentive while retaining deterministic recovery
 /// from large hashrate changes through ASERT.
-pub fn required_target(parent_height: u64, parent_timestamp: u64) -> U256 {
-    let ideal_elapsed = i128::from(parent_height) * i128::from(TARGET_BLOCK_TIME);
-    let actual_elapsed = i128::from(parent_timestamp) - i128::from(GENESIS_TIMESTAMP);
+pub fn required_target(parent_height: u64, parent_timestamp: u64, launch_timestamp: u64) -> U256 {
+    if parent_height <= 1 {
+        return initial_target();
+    }
+    // The first mined block anchors the schedule of its branch. Time spent
+    // waiting to launch the network must never lower its starting difficulty.
+    let ideal_elapsed = i128::from(parent_height - 1) * i128::from(TARGET_BLOCK_TIME);
+    let actual_elapsed = i128::from(parent_timestamp) - i128::from(launch_timestamp);
     let drift = actual_elapsed - ideal_elapsed;
     let exponent = (drift * 65_536).div_euclid(i128::from(ASERT_HALF_LIFE));
     let shifts = exponent.div_euclid(65_536);
@@ -72,16 +77,40 @@ pub fn required_target(parent_height: u64, parent_timestamp: u64) -> U256 {
     target >>= 16;
     if shifts < 0 {
         target >>= usize::try_from(-shifts).unwrap_or(usize::MAX).min(511);
-    } else if shifts >= 512 {
-        return pow_limit();
     } else {
-        target <<= usize::try_from(shifts).expect("nonnegative shift");
+        if shifts >= 256 {
+            return pow_limit();
+        }
+        let shift = usize::try_from(shifts).expect("nonnegative shift");
+        if target > (U512::from(pow_limit()) >> shift) {
+            return pow_limit();
+        }
+        target <<= shift;
     }
     u512_to_u256_clamped(target, pow_limit()).max(U256::one())
 }
 
-pub fn required_bits(parent_height: u64, parent_timestamp: u64) -> u32 {
-    target_to_bits(required_target(parent_height, parent_timestamp))
+pub fn required_bits(parent_height: u64, parent_timestamp: u64, launch_timestamp: u64) -> u32 {
+    target_to_bits(required_target(
+        parent_height,
+        parent_timestamp,
+        launch_timestamp,
+    ))
+}
+
+/// The same branch-local anchor is used by miners, block validation and shares.
+pub fn next_bits(history: &[Block]) -> u32 {
+    let Some(parent) = history.last() else {
+        return target_to_bits(initial_target());
+    };
+    let launch_timestamp = history
+        .get(1)
+        .map_or(parent.header.timestamp, |block| block.header.timestamp);
+    required_bits(
+        parent.header.height,
+        parent.header.timestamp,
+        launch_timestamp,
+    )
 }
 
 pub fn workshare_bits(block_bits: u32) -> Option<u32> {
@@ -128,12 +157,29 @@ mod tests {
 
     #[test]
     fn asert_doubles_and_halves_near_half_life() {
-        let baseline = required_target(0, GENESIS_TIMESTAMP);
-        let slower = required_target(0, GENESIS_TIMESTAMP + ASERT_HALF_LIFE as u64);
+        let launch = 1_000_000;
+        let ideal = launch + 200 * TARGET_BLOCK_TIME;
+        let baseline = required_target(201, ideal, launch);
+        let slower = required_target(201, ideal + ASERT_HALF_LIFE as u64, launch);
         assert!(slower >= baseline * 2 - U256::from(2_u8));
-        let faster_parent_time = GENESIS_TIMESTAMP.saturating_sub(ASERT_HALF_LIFE as u64);
-        let faster = required_target(0, faster_parent_time);
+        let faster = required_target(201, ideal - ASERT_HALF_LIFE as u64, launch);
         assert!(faster <= baseline / 2 + U256::from(2_u8));
+    }
+
+    #[test]
+    fn launch_delay_does_not_change_difficulty_and_extreme_gaps_saturate() {
+        assert_eq!(required_target(0, 0, 0), initial_target());
+        assert_eq!(required_target(1, u64::MAX, u64::MAX), initial_target());
+        assert_eq!(
+            required_target(101, 10_000 + 100 * TARGET_BLOCK_TIME, 10_000),
+            initial_target()
+        );
+        assert_eq!(
+            required_target(101, 1_000_000 + 100 * TARGET_BLOCK_TIME, 1_000_000),
+            initial_target()
+        );
+        assert_eq!(required_target(2, u64::MAX, 0), pow_limit());
+        assert_eq!(required_target(u64::MAX, 0, 0), U256::one());
     }
 
     #[test]

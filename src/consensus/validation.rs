@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    bits_to_target, pow_limit, randomx_seed_reference_height, required_bits, reward_allocation,
+    bits_to_target, next_bits, pow_limit, randomx_seed_reference_height, reward_allocation,
     target_work, workshare_bits, Block, BlockHeader, BlockTemplate, LedgerState, RewardAllocation,
     RewardClaim, Transaction, WorkshareWitness, CHAIN_ID, HEADER_VERSION, MAX_BLOCK_BYTES,
     MAX_BLOCK_TRANSACTIONS, MAX_FUTURE_BLOCK_TIME, MAX_MONEY, MAX_TEMPLATE_BYTES,
@@ -285,7 +285,7 @@ fn validate_header_context(
     if header.previous_block != parent.id() {
         return Err(ConsensusError::WrongParent);
     }
-    if header.bits != required_bits(parent.header.height, parent.header.timestamp)
+    if header.bits != next_bits(parent_history)
         || bits_to_target(header.bits).is_none_or(|target| target > pow_limit())
     {
         return Err(ConsensusError::InvalidTarget);
@@ -334,7 +334,7 @@ pub(crate) fn validate_workshares(
         .map(|template| (template.id(), template))
         .collect();
     let seed = randomx_seed(parent_history, parent.header.height + 1)?;
-    let expected_bits = required_bits(parent.header.height, parent.header.timestamp);
+    let expected_bits = next_bits(parent_history);
     let block_target = bits_to_target(expected_bits).ok_or(ConsensusError::InvalidTarget)?;
     let share_bits = workshare_bits(expected_bits).ok_or(ConsensusError::InvalidTarget)?;
     let share_target = bits_to_target(share_bits).ok_or(ConsensusError::InvalidTarget)?;
@@ -547,7 +547,7 @@ mod tests {
                 state_root: post_state.root(),
                 workshare_root: witness.root(),
                 timestamp: GENESIS_TIMESTAMP + height * TARGET_BLOCK_TIME,
-                bits: required_bits(parent.header.height, parent.header.timestamp),
+                bits: next_bits(history),
                 nonce,
             },
             reward_claim: Some(claim),
@@ -635,7 +635,7 @@ mod tests {
                 state_root: post_state.root(),
                 workshare_root: prefix.root(),
                 timestamp: GENESIS_TIMESTAMP + 1,
-                bits: required_bits(0, GENESIS_TIMESTAMP),
+                bits: next_bits(&history),
                 nonce: 9,
             },
         };
@@ -666,9 +666,8 @@ mod tests {
     fn hash_strictly_between_targets_is_a_valid_workshare() {
         let history = vec![Block::genesis()];
         let witness = one_workshare_witness(address(5));
-        let block_target = bits_to_target(required_bits(0, GENESIS_TIMESTAMP)).unwrap();
-        let share_target =
-            bits_to_target(workshare_bits(required_bits(0, GENESIS_TIMESTAMP)).unwrap()).unwrap();
+        let block_target = bits_to_target(next_bits(&history)).unwrap();
+        let share_target = bits_to_target(workshare_bits(next_bits(&history)).unwrap()).unwrap();
         let share_hash = (block_target + U256::one()).to_little_endian();
         assert!(U256::from_little_endian(&share_hash) <= share_target);
         validate_workshares(

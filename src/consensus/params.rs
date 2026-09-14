@@ -1,6 +1,6 @@
 use primitive_types::U256;
 
-pub const NODE_VERSION: &str = "4.0.1-rc.2";
+pub const NODE_VERSION: &str = "4.0.1-rc.3";
 pub const PROTOCOL_VERSION: u16 = 9;
 pub const HEADER_VERSION: u16 = 3;
 pub const CHAIN_ID: &str = "paritr-mainnet";
@@ -38,8 +38,7 @@ pub const RANDOMX_VERSION_LINE: &str = "1.2.3";
 pub const RANDOMX_BOOTSTRAP_SEED: &[u8] = b"Paritr-Protocol-9-RandomX-Bootstrap-v1";
 
 pub const GENESIS_TIMESTAMP: u64 = 1_788_984_000;
-pub const GENESIS_MESSAGE: &str =
-    "Paritr Mainnet Protocol 9 - sustainable workshare PoW - 2026-09-09";
+pub const GENESIS_MESSAGE: &str = "Paritr Mainnet Protocol 9 - launch-anchored ASERT - 4.0.1-rc.3";
 
 pub fn pow_limit() -> U256 {
     (U256::one() << 248) - U256::one()

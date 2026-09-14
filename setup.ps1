@@ -23,7 +23,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$NodeVersion = '4.0.1-rc.2'
+$NodeVersion = '4.0.1-rc.3'
 $ProtocolVersion = 9
 $PortWasSpecified = $PSBoundParameters.ContainsKey('Port')
 $Source = $Source.TrimEnd('/')
@@ -206,7 +206,8 @@ function Install-Container {
     }
     Invoke-Docker ($compose + @('run','--rm','--no-deps','paritr-node','check')) | Out-Null
     if (-not $NoAutostart) { Invoke-Docker ($compose + @('up','-d','paritr-node')) | Out-Null }
-    Invoke-Docker ($compose + @('run','--rm','--no-deps','paritr-node','admin-access'))
+    $lanIp = Get-NetIPConfiguration | Where-Object { ($_.IPv4DefaultGateway -or $_.NetAdapter.HardwareInterface) -and $_.IPv4Address } | Select-Object -First 1 -ExpandProperty IPv4Address | Select-Object -First 1 -ExpandProperty IPAddress
+    Invoke-Docker ($compose + @('run','--rm','--no-deps','-e',"PARITR_MANAGEMENT_HOST_IP=$lanIp",'paritr-node','admin-access'))
 
     if ($OpenFirewall) {
         if (-not (Test-Administrator)) {

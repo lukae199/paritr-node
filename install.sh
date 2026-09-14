@@ -2,7 +2,7 @@
 # Paritr Protocol 9 installer for Linux, macOS and FreeBSD.
 set -Eeuo pipefail
 
-NODE_VERSION="4.0.1-rc.2"
+NODE_VERSION="4.0.1-rc.3"
 PROTOCOL_VERSION="9"
 CHAIN_ID="paritr-mainnet"
 RANDOMX_TAG="v1.2.3"
@@ -104,6 +104,10 @@ as_root() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$NODE_DIR/lib"
 NODE_DIR="$(cd "$NODE_DIR" && pwd)"
+if [[ "$OS" == Linux && ( "$NODE_DIR" == *'%'* || "$NODE_DIR" == *'$'* || "$NODE_DIR" == *'\'* || "$NODE_DIR" == *$'\r'* ) ]]; then
+  echo 'Linux service paths cannot contain %, $, backslash or carriage return.' >&2
+  exit 2
+fi
 CONFIG="$NODE_DIR/config.json"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 if [[ -f "$CONFIG" ]] && ! grep -Eq '"network"[[:space:]]*:[[:space:]]*"paritr-mainnet"' "$CONFIG"; then
@@ -184,7 +188,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=$INSTALL_USER
-WorkingDirectory="$NODE_DIR"
+WorkingDirectory=$NODE_DIR
 ExecStart="$NODE_DIR/paritr-node" --config "$CONFIG" run
 Restart=on-failure
 RestartSec=5
@@ -199,6 +203,9 @@ ReadWritePaths="$NODE_DIR"
 [Install]
 WantedBy=multi-user.target
 EOF
+  if command -v systemd-analyze >/dev/null 2>&1; then
+    systemd-analyze verify "$UNIT"
+  fi
   as_root install -m 0644 "$UNIT" "/etc/systemd/system/$SERVICE_NAME.service"
   as_root systemctl daemon-reload
   if [[ "$NO_AUTOSTART" -eq 0 ]]; then

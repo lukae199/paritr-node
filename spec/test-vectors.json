@@ -19,15 +19,15 @@
   },
   "genesis": {
     "timestamp": 1788984000,
-    "message_utf8": "Paritr Mainnet Protocol 9 - sustainable workshare PoW - 2026-09-09",
+    "message_utf8": "Paritr Mainnet Protocol 9 - launch-anchored ASERT - 4.0.1-rc.3",
     "bits_decimal": 520355839,
     "bits_hex": "1f03ffff",
     "nonce": 0,
-    "transactions_root": "ece9cf93862588e0de73602cd3361fa5c8efc031d5a9fafb65c3877b14e1d350",
+    "transactions_root": "17d31519e57002d114c4e8e881597d3606735a65d469956ab8d87715e3c44828",
     "state_root": "e55ef31e65f0e301c8346f844a1bd748c395e23147881cec7a87173e147e10e9",
     "workshare_root": "e0622ca26dc9ce82101cd2dd43c17b21adea8108a92e27b0ccc78bf87b3148c0",
-    "block_id": "44f076c3b96c8e7cb49605d13d04177cadb1f2e44faf9f5f2c249b5da32b320f",
-    "consensus_base64": "AwAJAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADs6c+ThiWI4N5zYCzTNh+lyO/AMdWp+vtlw4d7FOHTUOVe8x5l8OMByDRvhEob10jDleIxR4gc7HqHFz4UfhDp4GIsom3JzoIQHNLdQ8F7Ia3qgQipLiewzMeL+HsxSMDAuqFqAAAAAP//Ax8AAAAAAAAAAAAAAAAACgAAAAEAAAAAAAAAAAA="
+    "block_id": "4824434908d3cc1100e56146b813b95770bf85ada235b55c690404b4ea02867c",
+    "consensus_base64": "AwAJAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAX0xUZ5XAC0RTE6OiBWX02BnNaZdRplWq42HcV48RIKOVe8x5l8OMByDRvhEob10jDleIxR4gc7HqHFz4UfhDp4GIsom3JzoIQHNLdQ8F7Ia3qgQipLiewzMeL+HsxSMDAuqFqAAAAAP//Ax8AAAAAAAAAAAAAAAAACgAAAAEAAAAAAAAAAAA="
   },
   "limits": {
     "max_block_bytes": 8388608,
@@ -52,6 +52,8 @@
   "timing": {
     "target_block_seconds": 64,
     "asert_half_life_seconds": 7200,
+    "asert_anchor_height": 1,
+    "initial_displayed_difficulty": 64,
     "median_time_span": 11,
     "maximum_future_seconds": 300,
     "workshare_target_multiplier": 32,

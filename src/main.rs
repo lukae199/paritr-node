@@ -164,6 +164,23 @@ async fn main() -> anyhow::Result<()> {
                 .port();
             println!("Management URL: http://{}.local:{port}", config.device_name);
             println!("Local fallback: http://127.0.0.1:{port}");
+            let lan_ip = std::env::var("PARITR_MANAGEMENT_HOST_IP")
+                .ok()
+                .and_then(|value| value.parse::<std::net::IpAddr>().ok())
+                .or_else(|| {
+                    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+                    // Route selection only; UDP connect sends no packet.
+                    socket.connect("192.0.2.1:80").ok()?;
+                    Some(socket.local_addr().ok()?.ip())
+                });
+            if let Some(ip) = lan_ip {
+                let address = std::net::SocketAddr::new(ip, port);
+                println!("LAN management: http://{address}/");
+                println!(
+                    "Direct login: http://{address}/#secret={}",
+                    config.admin_secret
+                );
+            }
             println!("Admin secret: {}", config.admin_secret);
             println!("Keep this secret private; no wallet key or seed phrase is needed.");
             Ok(())
@@ -229,9 +246,7 @@ async fn run(config_path: PathBuf) -> anyhow::Result<()> {
     if let Some(task) = portal {
         task.abort();
     }
-    if let Some(miner) = miner {
-        miner.stop();
-    }
+    miner.stop();
     Ok(())
 }
 

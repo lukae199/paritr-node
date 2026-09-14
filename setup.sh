@@ -2,7 +2,7 @@
 # Unified Paritr Protocol 9 setup for Linux, macOS and FreeBSD.
 set -Eeuo pipefail
 
-NODE_VERSION="4.0.1-rc.2"
+NODE_VERSION="4.0.1-rc.3"
 PROTOCOL_VERSION="9"
 SOURCE_BASE="${PARITR_SOURCE:-https://paritr.highactive.de/downloads}"
 DEPLOYMENT="auto"
@@ -135,7 +135,7 @@ install_docker_linux() {
   if command -v apt-get >/dev/null 2>&1; then
     as_root apt-get update
     as_root apt-get install -y ca-certificates curl docker.io
-    as_root apt-get install -y docker-compose-v2 || as_root apt-get install -y docker-compose-plugin
+    install_compose_apt
     installed=1
   elif command -v dnf >/dev/null 2>&1; then
     as_root dnf install -y moby-engine docker-compose
@@ -157,6 +157,37 @@ install_docker_linux() {
   if command -v systemctl >/dev/null 2>&1; then as_root systemctl enable --now docker
   elif command -v rc-update >/dev/null 2>&1; then as_root rc-update add docker default; as_root service docker start
   fi
+}
+
+install_compose_apt() {
+  local package distro codename architecture
+  for package in docker-compose-v2 docker-compose-plugin; do
+    if apt-cache policy "$package" | grep -Eq 'Candidate: [0-9]'; then
+      as_root apt-get install -y "$package"
+      return
+    fi
+  done
+  # Raspberry Pi OS often has docker.io but no Compose v2 in its default repo.
+  # Add Docker's signed repository for the plugin, retaining the existing engine.
+  distro="$(. /etc/os-release; printf '%s' "$ID")"
+  codename="$(. /etc/os-release; printf '%s' "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}")"
+  [[ "$distro" != raspbian ]] || distro=debian
+  [[ "$distro" == debian || "$distro" == ubuntu ]] || { echo "Unsupported Docker APT base: $distro" >&2; return 1; }
+  [[ "$codename" =~ ^[a-z]+$ ]] || { echo "Cannot determine Docker repository suite" >&2; return 1; }
+  architecture="$(dpkg --print-architecture)"
+  as_root apt-get install -y ca-certificates curl
+  if grep -Rqs "https://download.docker.com/linux/$distro" /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
+    as_root apt-get update
+    as_root apt-get install --no-install-recommends -y docker-compose-plugin
+    return
+  fi
+  curl --proto '=https' --tlsv1.2 -fsSLo "$TMP/docker.asc" "https://download.docker.com/linux/$distro/gpg"
+  as_root install -d -m 0755 /etc/apt/keyrings
+  as_root install -m 0644 "$TMP/docker.asc" /etc/apt/keyrings/paritr-docker.asc
+  printf 'deb [arch=%s signed-by=/etc/apt/keyrings/paritr-docker.asc] https://download.docker.com/linux/%s %s stable\n' "$architecture" "$distro" "$codename" >"$TMP/paritr-docker.list"
+  as_root install -m 0644 "$TMP/paritr-docker.list" /etc/apt/sources.list.d/paritr-docker.list
+  as_root apt-get update
+  as_root apt-get install --no-install-recommends -y docker-compose-plugin
 }
 
 install_build_tools() {
@@ -211,6 +242,10 @@ ensure_docker() {
     echo "Waiting for Docker Desktop..."
     local attempt
     for attempt in {1..90}; do docker info >/dev/null 2>&1 && break; sleep 2; done
+  fi
+  if ! docker_cmd compose version >/dev/null 2>&1 && [[ "$OS" == Linux ]] && command -v apt-get >/dev/null 2>&1; then
+    as_root apt-get update
+    install_compose_apt
   fi
   docker_cmd compose version >/dev/null 2>&1 || {
     echo "Docker Compose v2 is unavailable. Install the Compose plugin and rerun setup." >&2; return 1;
@@ -344,6 +379,14 @@ echo "Installation complete: $NODE_DIR"
 echo "Management: $NODE_DIR/manage.sh status"
 echo "Local API:  http://127.0.0.1:$PORT"
 if [[ "$DEPLOYMENT" == docker ]]; then
-  compose run --rm --no-deps paritr-node admin-access
+  LAN_IP=""
+  if command -v ip >/dev/null 2>&1; then
+    LAN_IP="$(ip -4 route get 192.0.2.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}' || true)"
+    [[ -n "$LAN_IP" ]] || LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  elif [[ "$OS" == Darwin ]]; then
+    LAN_INTERFACE="$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}' || true)"
+    LAN_IP="$(ipconfig getifaddr "$LAN_INTERFACE" 2>/dev/null || true)"
+  fi
+  compose run --rm --no-deps -e "PARITR_MANAGEMENT_HOST_IP=$LAN_IP" paritr-node admin-access
 fi
 echo "Private keys and wallet seed phrases are never requested by this installer."

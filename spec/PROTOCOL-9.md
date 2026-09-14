@@ -136,11 +136,11 @@ Every Workshare candidate header MUST reconstruct a fully valid candidate for th
 
 Initial target is `2^242 - 1`; PoW limit is `2^248 - 1`. Compact `bits` uses the canonical Bitcoin-style unsigned exponent/mantissa form. Sign bit, zero mantissa, exponent 0 or >33, non-round-tripping forms, and exponent 33 with mantissa >`0xffff` are invalid.
 
-The required target for a child depends only on the parent `(height, timestamp)`, not on the child's timestamp:
+From 4.0.1-rc.3 the first mined block (height 1) anchors ASERT on each branch. Children of heights 0 and 1 use the initial target. Later targets depend on the parent and that branch's height-1 timestamp, never the child's timestamp. A delayed network launch therefore cannot reduce starting difficulty:
 
 ```text
-ideal   = parent_height * 64
-actual  = parent_timestamp - genesis_timestamp
+ideal   = (parent_height - 1) * 64
+actual  = parent_timestamp - height_1_timestamp
 drift   = actual - ideal
 e       = floor_euclid(drift * 65536 / 7200)
 shifts  = floor_euclid(e / 65536)
@@ -180,13 +180,13 @@ The genesis is a checkpoint and is accepted only by byte-for-byte equality, not 
 | Field | Value |
 |---|---|
 | timestamp | `1788984000` |
-| message committed by transactions_root | `Paritr Mainnet Protocol 9 - sustainable workshare PoW - 2026-09-09` |
+| message committed by transactions_root | `Paritr Mainnet Protocol 9 - launch-anchored ASERT - 4.0.1-rc.3` |
 | bits | `0x1f03ffff` (`520355839`) |
 | nonce | `0` |
-| transactions root | `ece9cf93862588e0de73602cd3361fa5c8efc031d5a9fafb65c3877b14e1d350` |
+| transactions root | `17d31519e57002d114c4e8e881597d3606735a65d469956ab8d87715e3c44828` |
 | state root | `e55ef31e65f0e301c8346f844a1bd748c395e23147881cec7a87173e147e10e9` |
 | Workshare root | `e0622ca26dc9ce82101cd2dd43c17b21adea8108a92e27b0ccc78bf87b3148c0` |
-| block ID | `44f076c3b96c8e7cb49605d13d04177cadb1f2e44faf9f5f2c249b5da32b320f` |
+| block ID | `4824434908d3cc1100e56146b813b95770bf85ada235b55c690404b4ea02867c` |
 
 Exact bytes are in `test-vectors.json` and emitted by `paritr-node print-genesis`.
 

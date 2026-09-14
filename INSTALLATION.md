@@ -3,7 +3,7 @@
 Diese Anleitung beschreibt die Endanwender-Installation. Für die Veröffentlichung
 der Pakete gilt zusätzlich `deployment/README.md`.
 
-Ab 4.0.1-rc.2 teilen sich Admin-API und Oberfläche Port **5051**. Die bisherige
+Ab 4.0.1-rc.3 teilen sich Admin-API und Oberfläche Port **5051**. Die bisherige
 Standardkonfiguration `management_bind=0.0.0.0:5052` wird beim Laden automatisch
 auf `0.0.0.0:5051` umgestellt, wenn `admin_bind=127.0.0.1:5051` gilt.
 Eigene Portkonfigurationen bleiben erhalten. Bestehende Docker-Installationen

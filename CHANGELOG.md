@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.0.1-rc.3 — neuer Protocol-9-Testgenesis
+
+- Freigegebener Testketten-Neustart: ASERT ab erstem geminten Block; Anfangs-Difficulty
+  rund 64, Zielblockzeit weiterhin 64 Sekunden und Share-Multiplikator 32.
+- Separate genesisgebundene Datenbank ohne Löschung der bisherigen Daten.
+- Raspberry-Pi-systemd-Pfad und automatische Docker-Compose-Plugin-Installation korrigiert.
+- Live-Miningeinstellungen, zuverlässigere CPU-Drosselung und serialisierte RandomX-Initialisierung.
+- LAN-Direktlink, Ladeanzeigen und Adresshinweis in der Verwaltung.
+- Genesis-Prüfung im Portal; gemeinsames Node-/WebApp-Update erforderlich.
+
 ## 4.0.1-rc.2 — Protocol 9
 
 - Windows ARM64: portabler RandomX-Interpreter statt inkompatiblem MSVC-A64-JIT,
