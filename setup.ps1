@@ -23,7 +23,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$NodeVersion = '4.0.1-rc.3'
+$NodeVersion = '4.0.1-rc.4'
 $ProtocolVersion = 9
 $PortWasSpecified = $PSBoundParameters.ContainsKey('Port')
 $Source = $Source.TrimEnd('/')

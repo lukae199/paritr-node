@@ -64,6 +64,7 @@ pub struct NodeStatus {
     pub peer_count: usize,
     pub network_nodes: usize,
     pub active_miners: usize,
+    pub active_miners_scope: &'static str,
     pub node_enabled: bool,
     pub mining_enabled: bool,
     pub mining_active: bool,
@@ -352,12 +353,9 @@ impl Node {
         let settled_workshares = chain.blocks()[window_start..]
             .iter()
             .flat_map(|block| block.workshare_witness.workshares.iter());
-        let active_miners = settled_workshares
-            .clone()
-            .chain(live_workshares.iter())
-            .map(|share| share.miner)
-            .collect::<HashSet<_>>()
-            .len();
+        // Authenticated node identities, not payout addresses. This describes
+        // the locally observed connected network, not a global census.
+        let active_miners = peer_count + usize::from(self.is_enabled());
         let shares_in_window = settled_workshares.count() + live_workshares.len();
         let blocks = chain.blocks();
         let recent = &blocks[blocks.len().saturating_sub(31)..];
@@ -461,6 +459,7 @@ impl Node {
             peer_count,
             network_nodes: peer_count.saturating_add(1),
             active_miners,
+            active_miners_scope: "connected_node_identities_including_self",
             node_enabled: self.is_enabled(),
             mining_enabled: config.mining_enabled,
             mining_active: self.is_enabled() && config.mining_enabled && hashrate > 0.0,
@@ -590,23 +589,25 @@ impl Node {
                 "matured": true,
             }));
         }
-        for block in chain.blocks().iter().rev() {
-            if let Some(claim) = block
-                .reward_claim
-                .as_ref()
-                .filter(|claim| claim.finder == address)
-            {
-                entries.push(serde_json::json!({
-                    "txid": claim.id(),
-                    "direction": "reward",
-                    "amount": claim.amount,
-                    "fee": 0,
-                    "timestamp": block.header.timestamp,
-                    "height": block.header.height,
-                    "confirmations": height.saturating_sub(block.header.height).saturating_add(1),
-                    "status": "confirmed",
-                    "matured": height >= block.header.height.saturating_add(consensus::REWARD_MATURITY),
-                }));
+        let share_blocks: Vec<_> = chain
+            .blocks()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, block)| {
+                block
+                    .workshare_witness
+                    .workshares
+                    .iter()
+                    .any(|share| share.miner == address)
+                    .then_some(index)
+            })
+            .collect();
+        for (index, block) in chain.blocks().iter().enumerate().rev() {
+            if entries.len() >= offset.saturating_add(limit.min(100)) {
+                break;
+            }
+            if let Some(reward) = historical_reward(chain.blocks(), index, address, &share_blocks) {
+                entries.push(reward);
             }
             for transaction in block.transactions.iter().rev() {
                 let (direction, counterparty) = if transaction.sender == address {
@@ -691,11 +692,7 @@ impl Node {
             .iter()
             .flat_map(|block| block.workshare_witness.workshares.iter())
             .chain(live.workshares.iter());
-        let miners = shares
-            .clone()
-            .map(|share| share.miner)
-            .collect::<HashSet<_>>()
-            .len();
+        let miners = self.connected_peers.lock().len() + usize::from(self.is_enabled());
         let total = shares.clone().count();
         let own = address.map_or(0, |wanted| {
             shares.filter(|share| share.miner == wanted).count()
@@ -718,14 +715,23 @@ impl Node {
 
     pub fn mining_rewards(&self, address: Address) -> (u64, u64) {
         let chain = self.chain.read();
-        let total = chain
-            .blocks()
-            .iter()
-            .filter_map(|block| block.reward_claim.as_ref())
-            .filter(|claim| claim.finder == address)
-            .map(|claim| claim.amount)
-            .fold(0_u64, u64::saturating_add);
-        (total, chain.state().pending_for(address))
+        let pending = chain.state().pending_for(address);
+        // Empty genesis ledger: minted rewards = funds + sent amounts/fees
+        // minus received transfers. Includes all share rewards in linear time.
+        let mut credited = u128::from(chain.state().account(address).balance) + u128::from(pending);
+        let mut received = 0_u128;
+        for transaction in chain.blocks().iter().flat_map(|block| &block.transactions) {
+            if transaction.sender == address {
+                credited += u128::from(transaction.amount) + u128::from(transaction.fee);
+            }
+            if transaction.recipient == address {
+                received += u128::from(transaction.amount);
+            }
+        }
+        (
+            u64::try_from(credited.saturating_sub(received)).unwrap_or(u64::MAX),
+            pending,
+        )
     }
 
     pub fn account(&self, address: Address) -> (consensus::Account, u64) {
@@ -1047,7 +1053,7 @@ impl Node {
 
     pub fn local_hello(&self, response_to: Hash32) -> Hello {
         let listen_url = self
-            .config
+            .mining_config()
             .public_url
             .as_deref()
             .map(|url| format!("{}/p2p/v9", url.trim_end_matches('/')))
@@ -1365,6 +1371,54 @@ fn unix_time() -> u64 {
         .as_secs()
 }
 
+fn historical_reward(
+    history: &[Block],
+    index: usize,
+    address: Address,
+    share_blocks: &[usize],
+) -> Option<serde_json::Value> {
+    let block = &history[index];
+    let claim = block.reward_claim.as_ref()?;
+    let finder_amount = if claim.finder == address {
+        claim.amount
+    } else {
+        0
+    };
+    let window = usize::try_from(consensus::REWARD_WINDOW).expect("window fits usize");
+    let eligible = share_blocks
+        .partition_point(|position| *position < index)
+        .checked_sub(1)
+        .is_some_and(|position| share_blocks[position] >= index.saturating_sub(window));
+    let share_amount = if eligible {
+        // Fees go exclusively to the finder; the share pool is fee-independent.
+        reward_allocation(block.header.height, claim.finder, 0, &history[..index])
+            .ok()?
+            .workshare_rewards
+            .into_iter()
+            .find_map(|(recipient, amount)| (recipient == address).then_some(amount))
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let amount = finder_amount + share_amount;
+    if amount == 0 {
+        return None;
+    }
+    let mut identity = block.id().consensus_encode();
+    identity.extend(address.consensus_encode());
+    let height = history.last()?.header.height;
+    Some(serde_json::json!({
+        "txid": domain_hash(b"PARITR-REWARD-HISTORY-v1", &identity),
+        "direction": "reward", "amount": amount,
+        "finder_amount": finder_amount, "workshare_amount": share_amount,
+        "fee": 0, "timestamp": block.header.timestamp, "height": block.header.height,
+        "confirmations": height.saturating_sub(block.header.height).saturating_add(1),
+        "status": "confirmed",
+        "matured": height >= block.header.height.saturating_add(consensus::REWARD_MATURITY),
+        "maturity_height": block.header.height.saturating_add(consensus::REWARD_MATURITY),
+    }))
+}
+
 pub fn randomx_fast_available() -> bool {
     if usize::BITS < 64 {
         return false;
@@ -1413,4 +1467,49 @@ pub(crate) fn displayed_difficulty(bits: u32) -> f64 {
 fn is_database(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension == "sqlite")
+}
+
+#[cfg(test)]
+mod reward_history_tests {
+    use super::*;
+
+    #[test]
+    fn share_only_recipient_appears_in_history_and_matures_after_100_blocks() {
+        let miner = Address::from_public_key_hash([1; 20]);
+        let finder = Address::from_public_key_hash([2; 20]);
+        let mut settled = Block::genesis();
+        settled.header.height = 1;
+        settled.workshare_witness.workshares.push(Workshare {
+            version: Workshare::VERSION,
+            previous_workshare: Hash32::ZERO,
+            template_id: Hash32::ZERO,
+            miner,
+            extranonce: 0,
+            candidate_header: settled.header.clone(),
+        });
+        let mut payout = Block::genesis();
+        payout.header.height = 2;
+        payout.reward_claim = Some(RewardClaim {
+            version: RewardClaim::VERSION,
+            height: 2,
+            finder,
+            amount: consensus::INITIAL_SUBSIDY / 20,
+            extranonce: 0,
+        });
+        // API fixture; PoW validation is covered by consensus tests.
+        let mut history = vec![Block::genesis(), settled, payout];
+        let entry = historical_reward(&history, 2, miner, &[1]).unwrap();
+        assert_eq!(entry["amount"], consensus::INITIAL_SUBSIDY * 95 / 100);
+        assert_eq!(entry["finder_amount"], 0);
+        assert_eq!(entry["matured"], false);
+        let finder_entry = historical_reward(&history, 2, finder, &[]).unwrap();
+        assert_eq!(finder_entry["amount"], consensus::INITIAL_SUBSIDY / 20);
+        let mut tip = Block::genesis();
+        tip.header.height = 2 + consensus::REWARD_MATURITY;
+        history.push(tip);
+        assert_eq!(
+            historical_reward(&history, 2, miner, &[1]).unwrap()["matured"],
+            true
+        );
+    }
 }

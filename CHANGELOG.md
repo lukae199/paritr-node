@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.0.1-rc.4 — Installation und Reward-Anzeige
+
+- Docker-Abschluss ohne Zugriff auf eine abgelaufene lokale Variable.
+- Konfiguration beim Lesen nicht unnötig neu schreiben; eindeutige temporäre
+  Dateien verhindern Konflikte zwischen Installer und Dienststart.
+- Öffentliche URL, Pairing und Unpairing live übernehmen; Portal-Agent läuft
+  auch vor dem ersten Pairing und übernimmt neue Zugangsdaten automatisch.
+- Total mined und Wallet-Historie enthalten Finder- und Share-Rewards.
+- Aktive Nodes nach authentifizierten Peer-Identitäten statt Reward-Adressen
+  zählen (lokale Verbindungssicht, kein globaler Mining-Aktivitätsnachweis).
+- Genesis, Reward-Aufteilung, 100-Block-Reifung und bestehende Guthaben unverändert.
+
 ## 4.0.1-rc.3 — neuer Protocol-9-Testgenesis
 
 - Freigegebener Testketten-Neustart: ASERT ab erstem geminten Block; Anfangs-Difficulty

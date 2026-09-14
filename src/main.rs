@@ -243,9 +243,7 @@ async fn run(config_path: PathBuf) -> anyhow::Result<()> {
     for task in peers {
         task.abort();
     }
-    if let Some(task) = portal {
-        task.abort();
-    }
+    portal.abort();
     miner.stop();
     Ok(())
 }

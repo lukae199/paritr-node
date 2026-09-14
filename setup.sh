@@ -2,7 +2,7 @@
 # Unified Paritr Protocol 9 setup for Linux, macOS and FreeBSD.
 set -Eeuo pipefail
 
-NODE_VERSION="4.0.1-rc.3"
+NODE_VERSION="4.0.1-rc.4"
 PROTOCOL_VERSION="9"
 SOURCE_BASE="${PARITR_SOURCE:-https://paritr.highactive.de/downloads}"
 DEPLOYMENT="auto"
@@ -342,7 +342,7 @@ install_container() {
   chmod 0600 "$NODE_DIR/.paritr-deployment"
 
   compose() {
-    docker_cmd compose --project-directory "$NODE_DIR" --env-file "$NODE_DIR/.env" -f "$compose_file" "$@"
+    docker_cmd compose --project-directory "$NODE_DIR" --env-file "$NODE_DIR/.env" -f "$NODE_DIR/docker-compose.yml" "$@"
   }
   compose pull paritr-node
   if ! compose run --rm --no-deps --entrypoint /bin/sh paritr-node -c 'test -f /var/lib/paritr/config.json'; then

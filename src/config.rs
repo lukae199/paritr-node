@@ -93,6 +93,7 @@ impl Default for Config {
 
 impl Config {
     pub fn load_or_create(path: &Path) -> anyhow::Result<Self> {
+        let mut changed = !path.exists();
         let mut config = if path.exists() {
             let bytes =
                 fs::read(path).with_context(|| format!("cannot read config {}", path.display()))?;
@@ -105,15 +106,19 @@ impl Config {
         // Custom addresses remain unchanged.
         if config.management_bind == "0.0.0.0:5052" && config.admin_bind == "127.0.0.1:5051" {
             "0.0.0.0:5051".clone_into(&mut config.management_bind);
+            changed = true;
         }
         if config.data_dir.is_relative() {
+            changed = true;
             config.data_dir = path
                 .parent()
                 .unwrap_or_else(|| Path::new("."))
                 .join(&config.data_dir);
         }
         config.validate()?;
-        config.save(path)?;
+        if changed {
+            config.save(path)?;
+        }
         Ok(config)
     }
 
@@ -174,11 +179,21 @@ impl Config {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let temporary = path.with_extension("json.tmp");
-        let mut file = fs::File::create(&temporary)?;
+        // Installer and service startup must not share a temporary filename.
+        let temporary =
+            path.with_extension(format!("json.{:016x}.tmp", rand::rngs::OsRng.next_u64()));
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
         file.write_all(&serde_json::to_vec_pretty(self)?)?;
         file.write_all(b"\n")?;
         file.sync_all()?;
+        drop(file);
         set_private_permissions(&temporary)?;
         fs::rename(&temporary, path)?;
         set_private_permissions(path)?;

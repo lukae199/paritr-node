@@ -38,7 +38,7 @@ struct CommandResult {
 }
 
 pub async fn pair(config_path: &Path, portal: &str, code: &str) -> anyhow::Result<String> {
-    let mut config = Config::load_or_create(config_path)?;
+    let config = Config::load_or_create(config_path)?;
     let base = validate_portal(portal)?;
     let client = Client::builder()
         .timeout(Duration::from_secs(20))
@@ -72,6 +72,8 @@ pub async fn pair(config_path: &Path, portal: &str, code: &str) -> anyhow::Resul
     if paired.agent_id.is_empty() || paired.token.len() < 24 {
         bail!("portal returned invalid agent credentials");
     }
+    // Preserve performance/settings changes made while the portal responded.
+    let mut config = Config::load_or_create(config_path)?;
     config.portal_url = Some(base.to_string().trim_end_matches('/').to_owned());
     config.portal_agent_id = Some(paired.agent_id.clone());
     config.portal_agent_token = Some(paired.token);
@@ -104,11 +106,8 @@ pub async fn unpair(config_path: &Path) -> anyhow::Result<()> {
     config.save(config_path)
 }
 
-pub fn spawn(node: Arc<Node>) -> Option<tokio::task::JoinHandle<()>> {
-    let portal = node.config.portal_url.clone()?;
-    let agent = node.config.portal_agent_id.clone()?;
-    let token = node.config.portal_agent_token.clone()?;
-    Some(tokio::spawn(async move {
+pub fn spawn(node: Arc<Node>) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
         let client = match Client::builder().timeout(Duration::from_secs(20)).build() {
             Ok(client) => client,
             Err(error) => {
@@ -116,17 +115,38 @@ pub fn spawn(node: Arc<Node>) -> Option<tokio::task::JoinHandle<()>> {
                 return;
             }
         };
-        let Ok(base) = validate_portal(&portal) else {
-            tracing::error!("invalid configured portal URL");
-            return;
-        };
         let mut results = Vec::new();
         let mut backoff = 2_u64;
+        let mut previous_credentials = None;
         loop {
+            let config = node.mining_config();
+            let credentials = config
+                .portal_url
+                .zip(config.portal_agent_id)
+                .zip(config.portal_agent_token);
+            if credentials != previous_credentials {
+                results.clear();
+                backoff = 2;
+                previous_credentials.clone_from(&credentials);
+            }
+            let Some(((portal, agent), token)) = credentials else {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                continue;
+            };
+            let Ok(base) = validate_portal(&portal) else {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                continue;
+            };
             match sync_once(&client, &node, &base, &agent, &token, &results).await {
                 Ok(commands) => {
                     results.clear();
                     for command in commands.into_iter().take(MAX_COMMANDS) {
+                        let current = node.mining_config();
+                        if current.portal_agent_id.as_deref() != Some(agent.as_str())
+                            || current.portal_agent_token.as_deref() != Some(token.as_str())
+                        {
+                            break;
+                        }
                         results.push(execute_command(&client, &node, command).await);
                     }
                     backoff = 2;
@@ -141,7 +161,7 @@ pub fn spawn(node: Arc<Node>) -> Option<tokio::task::JoinHandle<()>> {
                 }
             }
         }
-    }))
+    })
 }
 
 async fn sync_once(
@@ -162,7 +182,7 @@ async fn sync_once(
             "genesis_hash": consensus::Block::genesis().id(),
             "protocol_version": consensus::PROTOCOL_VERSION,
             "node_version": consensus::NODE_VERSION,
-            "public_url": node.config.public_url,
+            "public_url": node.mining_config().public_url,
             "status": node.status(),
             "results": results,
         }))

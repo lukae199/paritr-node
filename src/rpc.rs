@@ -400,7 +400,7 @@ async fn p2p_info(State(node): State<Arc<Node>>) -> Json<serde_json::Value> {
         "hashrate": status.hashrate,
         "peer_count": status.peer_count,
         "p2p_wire_path": "/p2p/v9",
-        "node_url": node.config.public_url,
+        "node_url": node.mining_config().public_url,
     }))
 }
 
@@ -433,6 +433,7 @@ async fn mining_distribution(
         "share_multiplier": consensus::WORKSHARE_TARGET_MULTIPLIER,
         "total_shares": total,
         "active_miners": miners,
+        "active_miners_scope": "connected_node_identities_including_self",
         "address_shares": own,
         "address_share_percent": percent,
         "address_next_entitlement": entitlement,
@@ -452,6 +453,8 @@ async fn mining_rewards(
     Ok(Json(serde_json::json!({
         "address": address,
         "total_mined": total,
+        "reward_maturity_blocks": consensus::REWARD_MATURITY,
+        "matured_rewards": total.saturating_sub(pending),
         "immature": pending,
         "pending": pending,
         "coin": consensus::COIN,
@@ -685,7 +688,7 @@ async fn admin_auth(State(node): State<Arc<Node>>) -> Json<serde_json::Value> {
         "miner_address": config.miner_address,
         "mining_enabled": config.mining_enabled,
         "node_enabled": node.is_enabled(),
-        "public_url": node.config.public_url,
+        "public_url": config.public_url,
     }))
 }
 
@@ -712,12 +715,12 @@ async fn admin_config(State(node): State<Arc<Node>>) -> Json<serde_json::Value> 
         "mining_threads": config.mining_threads,
         "mining_intensity": config.mining_intensity,
         "miner_address": config.miner_address,
-        "public_url": node.config.public_url,
-        "portal_url": node.config.portal_url,
-        "portal_paired": node.config.portal_agent_id.is_some(),
+        "public_url": config.public_url,
+        "portal_url": config.portal_url,
+        "portal_paired": config.portal_agent_id.is_some(),
         "device_id": node.config.device_id,
         "device_name": node.config.device_name,
-        "restart_policy": "performance changes apply live; RandomX mode and device changes require restart",
+        "restart_policy": "performance, public URL and pairing apply live; RandomX mode and device name require restart",
     }))
 }
 
@@ -751,12 +754,16 @@ async fn admin_config_update(
     config
         .save(node.config_path())
         .map_err(ApiError::bad_request)?;
-    schedule_restart();
+    let restart_scheduled = config.device_name != node.config.device_name;
+    node.apply_mining_config(config.clone());
+    if restart_scheduled {
+        schedule_restart();
+    }
     Ok(Json(serde_json::json!({
         "status": "success",
         "device_name": config.device_name,
         "public_url": config.public_url,
-        "restart_scheduled": true,
+        "restart_scheduled": restart_scheduled,
     })))
 }
 
@@ -825,11 +832,13 @@ async fn admin_pair(
     let agent_id = crate::portal::pair(node.config_path(), &request.portal_url, &request.code)
         .await
         .map_err(ApiError::bad_request)?;
-    schedule_restart();
+    node.apply_mining_config(
+        Config::load_or_create(node.config_path()).map_err(ApiError::bad_request)?,
+    );
     Ok(Json(serde_json::json!({
         "status": "success",
         "agent_id": agent_id,
-        "restart_scheduled": true,
+        "restart_scheduled": false,
     })))
 }
 
@@ -837,10 +846,12 @@ async fn admin_unpair(State(node): State<Arc<Node>>) -> Result<Json<serde_json::
     crate::portal::unpair(node.config_path())
         .await
         .map_err(ApiError::bad_request)?;
-    schedule_restart();
+    node.apply_mining_config(
+        Config::load_or_create(node.config_path()).map_err(ApiError::bad_request)?,
+    );
     Ok(Json(serde_json::json!({
         "status": "success",
-        "restart_scheduled": true,
+        "restart_scheduled": false,
     })))
 }
 

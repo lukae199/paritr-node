@@ -145,8 +145,8 @@
     $('intensity').addEventListener('input', () => { $('intensityOut').textContent = `${$('intensity').value} %`; });
     $('saveMining').addEventListener('click', () => action('/admin/mining', { miner_address: $('minerAddress').value.trim(), mining_enabled: $('miningEnabled').checked, mining_processes: Number($('threads').value), mining_intensity: Number($('intensity').value), randomx_mode: document.querySelector('input[name=mode]:checked')?.value || 'light' }, 'Gespeichert. Die Node startet neu.'));
     $('saveDevice').addEventListener('click', () => action('/admin/config', { device_name: $('deviceName').value.trim(), public_url: $('publicUrl').value.trim() }, 'Gespeichert. Die Node startet neu.'));
-    $('pair').addEventListener('click', () => action('/admin/pair', { portal_url: $('portalUrl').value.trim(), code: $('pairCode').value.trim() }, 'Kopplung erfolgreich. Die Node startet neu.'));
-    $('unpair').addEventListener('click', () => action('/admin/unpair', {}, 'Kopplung entfernt. Die Node startet neu.'));
+    $('pair').addEventListener('click', () => action('/admin/pair', { portal_url: $('portalUrl').value.trim(), code: $('pairCode').value.trim() }, 'Kopplung erfolgreich.'));
+    $('unpair').addEventListener('click', () => action('/admin/unpair', {}, 'Kopplung entfernt.'));
     $('start').addEventListener('click', () => action('/admin/start', {}, 'Die Node wird gestartet.'));
     $('stop').addEventListener('click', () => action('/admin/stop', {}, 'P2P und Mining werden gestoppt.'));
     $('sync').addEventListener('click', () => action('/admin/sync', {}, 'Synchronisierung angefordert.'));
