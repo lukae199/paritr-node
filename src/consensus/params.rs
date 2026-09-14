@@ -1,6 +1,6 @@
 use primitive_types::U256;
 
-pub const NODE_VERSION: &str = "4.0.1-rc.1";
+pub const NODE_VERSION: &str = "4.0.1-rc.2";
 pub const PROTOCOL_VERSION: u16 = 9;
 pub const HEADER_VERSION: u16 = 3;
 pub const CHAIN_ID: &str = "paritr-mainnet";

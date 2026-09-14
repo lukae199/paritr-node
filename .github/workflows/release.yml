@@ -55,6 +55,7 @@ jobs:
           export PARITR_RANDOMX_LIBRARY="$rx"
           "target/${{ matrix.target }}/release/paritr-node" --config "$RUNNER_TEMP/paritr-release-check/config.json" check
           cp -L "$rx" "dist/$name/lib/"
+          cp RandomX/LICENSE "dist/$name/RandomX-LICENSE"
           cp manage.sh packaging/paritr-node.freebsd-rc README.md INSTALLATION.md NODE-START.md BUILDING.md MIGRATION.md SECURITY.md "dist/$name/"
           tar -C dist -czf "artifacts/$name.tar.gz" "$name"
           if command -v sha256sum >/dev/null; then sha256sum "artifacts/$name.tar.gz" > "artifacts/$name.tar.gz.sha256"
@@ -66,14 +67,18 @@ jobs:
           if-no-files-found: error
 
   windows-bundle:
+    env:
+      RUSTFLAGS: '-C target-feature=+crt-static'
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: windows-2025
             target: x86_64-pc-windows-msvc
+            cmake_arch: x64
           - runner: windows-11-arm
             target: aarch64-pc-windows-msvc
+            cmake_arch: ARM64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
@@ -82,9 +87,19 @@ jobs:
       - shell: pwsh
         run: |
           git clone --quiet --depth 1 --branch v1.2.3 https://github.com/tevador/RandomX.git RandomX
+          if ($LASTEXITCODE -ne 0) { throw 'RandomX download failed' }
           if ((git -C RandomX rev-parse HEAD).Trim() -ne '12f2c2ffe2108d6cf54c391fee33c8bc3646cdab') { throw 'RandomX tag identity mismatch' }
-          cmake -S RandomX -B RandomX/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON -DBUILD_SHARED_LIBS=ON
-          cmake --build RandomX/build --config Release --parallel
+          $rxOptions = @()
+          if ('${{ matrix.cmake_arch }}' -eq 'ARM64') {
+            # v1.2.3's A64 JIT uses GNU/POSIX assembly, unsupported by MSVC.
+            # MSVC _M_ARM64 already selects the portable interpreter in common.hpp.
+            # Suppress the incompatible assembly sources in CMake as well.
+            $rxOptions += '-DARM_ID=portable'
+          }
+          cmake -S RandomX -B RandomX/build -A '${{ matrix.cmake_arch }}' -DCMAKE_BUILD_TYPE=Release -DCMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON -DBUILD_SHARED_LIBS=ON -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_CXX_FLAGS=/fp:strict @rxOptions
+          if ($LASTEXITCODE -ne 0) { throw 'RandomX configure failed' }
+          cmake --build RandomX/build --config Release --target randomx --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'RandomX compilation failed' }
           $target = '${{ matrix.target }}'
           $name = "paritr-node-$target"
           New-Item -ItemType Directory -Force -Path "dist/$name", artifacts | Out-Null
@@ -95,7 +110,10 @@ jobs:
           & "target/$target/release/paritr-node.exe" --config "$env:RUNNER_TEMP/paritr-release-check/config.json" check
           if ($LASTEXITCODE -ne 0) { throw 'Release self-check failed' }
           Copy-Item $dll.FullName "dist/$name/randomx.dll"
+          Copy-Item RandomX/LICENSE "dist/$name/RandomX-LICENSE"
           Copy-Item manage.ps1,README.md,INSTALLATION.md,NODE-START.md,BUILDING.md,MIGRATION.md,SECURITY.md "dist/$name/"
+          Remove-Item Env:PARITR_RANDOMX_LIBRARY
+          ./scripts/smoke-management.ps1 -Binary (Resolve-Path "dist/$name/paritr-node.exe").Path
           Compress-Archive -Path "dist/$name" -DestinationPath "artifacts/$name.zip"
           $hash = (Get-FileHash "artifacts/$name.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $name.zip" | Set-Content "artifacts/$name.zip.sha256" -Encoding ASCII

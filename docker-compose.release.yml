@@ -11,7 +11,7 @@ services:
       - no-new-privileges:true
     ports:
       - "${PARITR_LISTEN_HOST:-127.0.0.1}:${PARITR_PUBLIC_PORT:-5050}:5050"
-      - "${PARITR_MANAGEMENT_HOST:-0.0.0.0}:${PARITR_MANAGEMENT_PORT:-5052}:5052"
+      - "${PARITR_MANAGEMENT_HOST:-0.0.0.0}:${PARITR_MANAGEMENT_PORT:-5051}:5051"
     volumes:
       - paritr-data:/var/lib/paritr
     tmpfs:

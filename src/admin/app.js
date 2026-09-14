@@ -3,11 +3,14 @@
   const $ = (id) => document.getElementById(id);
   let secret = sessionStorage.getItem('paritrAdminSecret') || '';
   let config = null;
+  let editing = false;
+  let loading = false;
 
   async function api(path, options = {}) {
     const response = await fetch(path, {
       ...options,
       cache: 'no-store',
+      signal: AbortSignal.timeout(15000),
       headers: { 'Authorization': `Bearer ${secret}`, 'Content-Type': 'application/json', ...(options.headers || {}) },
     });
     const data = await response.json().catch(() => ({}));
@@ -47,6 +50,10 @@
     $('uptime').textContent = formatDuration(status.uptime_seconds);
     $('platform').textContent = status.platform || '—';
     $('cpuUse').textContent = `${Number(status.mining_processes || 0)} / ${Number(status.cpu_total || 0)} Threads`;
+    $('pairState').textContent = current.portal_paired ? 'Mit dem Wallet-Portal gekoppelt' : 'Noch nicht gekoppelt';
+    $('unpair').disabled = !current.portal_paired;
+    // Background status refresh must not overwrite unsaved form edits.
+    if (editing) return;
     $('miningEnabled').checked = Boolean(current.mining_enabled);
     $('minerAddress').value = current.miner_address || '';
     $('threads').max = Math.max(1, Number(status.cpu_total || 1)); $('threads').value = current.mining_threads || 0;
@@ -57,7 +64,7 @@
     $('fastChoice').classList.toggle('unavailable', !status.randomx_fast_available);
     if (!status.randomx_fast_available) $('fastChoice').querySelector('small').textContent = 'Auf diesem System ist nur Light verfügbar';
     $('deviceName').value = current.device_name; $('publicUrl').value = current.public_url || '';
-    $('localUrl').textContent = `http://${current.device_name}.local:${location.port || 5052}`;
+    $('localUrl').textContent = `http://${current.device_name}.local:${location.port || 5051}`;
     $('portalUrl').value = current.portal_url || 'https://paritr.highactive.de';
     $('pairState').textContent = current.portal_paired ? 'Mit dem Wallet-Portal gekoppelt' : 'Noch nicht gekoppelt';
     $('unpair').disabled = !current.portal_paired;
@@ -77,7 +84,14 @@
   }
 
   async function action(path, body, message) {
-    try { await api(path, { method: 'POST', body: JSON.stringify(body || {}) }); toast(message); }
+    try {
+      await api(path, { method: 'POST', body: JSON.stringify(body || {}) });
+      if (['/admin/mining', '/admin/config', '/admin/pair', '/admin/unpair'].includes(path)) {
+        editing = false;
+        $('pairCode').value = '';
+      }
+      toast(message);
+    }
     catch (error) { toast(error.message); }
   }
 
@@ -97,6 +111,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.grid input').forEach((input) => input.addEventListener('input', () => { editing = true; }));
     $('login').addEventListener('cancel', (event) => event.preventDefault());
     $('loginButton').addEventListener('click', (event) => { event.preventDefault(); secret = $('secret').value.trim(); sessionStorage.setItem('paritrAdminSecret', secret); connect(); });
     $('threads').addEventListener('input', () => { $('threadsOut').textContent = Number($('threads').value) === 0 ? 'Automatisch' : $('threads').value; });
@@ -112,6 +127,15 @@
     $('refreshLogs').addEventListener('click', loadLogs);
     $('checkUpdate').addEventListener('click', checkUpdate);
     if (secret) connect(); else $('login').showModal();
-    setInterval(() => { if (secret && !$('login').open) load().catch(() => {}); }, 5000);
+    setInterval(async () => {
+      if (!secret || $('login').open || loading) return;
+      loading = true;
+      try { await load(); }
+      catch (error) {
+        $('online').textContent = 'Verbindung unterbrochen · Wiederverbinden …';
+        $('online').classList.remove('ok');
+        $('start').disabled = true; $('stop').disabled = true;
+      } finally { loading = false; }
+    }, 5000);
   });
 })();

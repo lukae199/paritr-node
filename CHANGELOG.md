@@ -1,5 +1,17 @@
 # Changelog
 
+## 4.0.1-rc.2 — Protocol 9
+
+- Windows ARM64: portabler RandomX-Interpreter statt inkompatiblem MSVC-A64-JIT,
+  explizite Zielarchitektur, strikte Fließkomma-Rundung und sofortiger Build-Abbruch bei Fehlern.
+- Admin-API und lokale Oberfläche teilen Port 5051; alte Standardkonfigurationen
+  werden beim Laden von 5052 umgestellt. Angepasste Ports bleiben erhalten.
+- Verwaltungsoberfläche nach UI-Entwurf mit Original-ParitrNode-Logo, responsivem
+  Layout, geschützten Formulareingaben und sichtbaren Verbindungsabbrüchen.
+- Mögliche Sperrverklemmung beim Abruf von Transaktionen behoben.
+- Windows-Release prüft das fertige Bundle mit lokalem UI/API-Start und Authentifizierung.
+- Keine Änderung an Konsensregeln, Genesis oder Netzwerk-ID.
+
 ## 4.0.1-rc.1 — Protocol 9
 
 - Wallet-Portal-Pairing und Agent-Relay auf Protocol 9 vereinheitlicht.

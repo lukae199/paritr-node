@@ -9,7 +9,7 @@ Bereitstellung ist in [`deployment/README.md`](deployment/README.md) beschrieben
 Eine kompakte Dateiliste und die noch notwendigen Betreiberaktionen stehen in
 [`DELIVERY.md`](DELIVERY.md).
 
-Aktueller Stand: **4.0.1-rc.1**. Der Code ist vollständig ausführbar und getestet, aber vor einem wirtschaftlich relevanten Mainnet-Start sind ein unabhängiges Konsens-/Kryptografie-Audit und ein öffentlicher Mehrknoten-Test zwingend. „RC“ ist bewusst keine Behauptung, dass externe Prüfung bereits stattgefunden hat.
+Aktueller Stand: **4.0.1-rc.2**. Der Code ist vollständig ausführbar und getestet, aber vor einem wirtschaftlich relevanten Mainnet-Start sind ein unabhängiges Konsens-/Kryptografie-Audit und ein öffentlicher Mehrknoten-Test zwingend. „RC“ ist bewusst keine Behauptung, dass externe Prüfung bereits stattgefunden hat.
 
 ## Was P9 festlegt
 
@@ -22,7 +22,7 @@ Aktueller Stand: **4.0.1-rc.1**. Der Code ist vollständig ausführbar und getes
 - 256-stufiger Sparse Merkle Tree für Konten und ausstehende Rewards;
 - deterministischer Little-Endian-Codec, authentifiziertes P2P, Header-/Block-Synchronisation;
 - SQLite `WAL` + `FULL`, atomare Chain-/State-Commits und vollständige Revalidierung beim Start;
-- öffentliche API auf 5050, lokale Admin-API auf 5051 und LAN-Verwaltungsseite auf 5052; Secret-geschützte Admin-Routen sind für direkte Nodes zusätzlich über deren HTTPS-Reverse-Proxy erreichbar, Remote-Verwaltung erfolgt bevorzugt über den eingeschränkten ausgehenden Portal-Agenten.
+- öffentliche API auf 5050, Admin-API und LAN-Verwaltungsseite gemeinsam auf 5051; Secret-geschützte Admin-Routen sind für direkte Nodes zusätzlich über deren HTTPS-Reverse-Proxy erreichbar, Remote-Verwaltung erfolgt bevorzugt über den eingeschränkten ausgehenden Portal-Agenten.
 
 Die verbindlichen Regeln stehen in [spec/PROTOCOL-9.md](spec/PROTOCOL-9.md), maschinenlesbare Konstanten in [spec/test-vectors.json](spec/test-vectors.json). Die ursprüngliche Planung bleibt in [markdown.md](markdown.md), die alte Python-Node ist nur eine eingefrorene Protocol-8-Referenz.
 
@@ -54,7 +54,7 @@ Ohne Mining-Adresse startet ein validierender Light-Node. Der Installer erzeugt 
 ./manage.sh logs
 ```
 
-Unter Windows entsprechend `manage.ps1`. Die öffentliche API liegt standardmäßig auf Port 5050, die Admin-API auf `127.0.0.1:5051` und die Secret-geschützte lokale Verwaltungsseite auf Port 5052. Port 5050 wird nur mit `--open-firewall` beziehungsweise `-OpenFirewall` freigegeben; 5052 und mDNS werden ausschließlich für private lokale Netze eingerichtet.
+Unter Windows entsprechend `manage.ps1`. Die öffentliche API liegt standardmäßig auf Port 5050, die Admin-API auf `127.0.0.1:5051` und die Secret-geschützte lokale Verwaltungsseite auf Port 5051. Port 5050 wird nur mit `--open-firewall` beziehungsweise `-OpenFirewall` freigegeben; 5051 und mDNS werden ausschließlich für private lokale Netze eingerichtet.
 
 Containerbetrieb:
 

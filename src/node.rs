@@ -482,7 +482,7 @@ impl Node {
                 self.config
                     .management_bind
                     .parse::<std::net::SocketAddr>()
-                    .map_or(5052, |address| address.port())
+                    .map_or(5051, |address| address.port())
             ),
             uptime_seconds: unix_time().saturating_sub(self.started_at),
             emitted_supply,
@@ -525,7 +525,8 @@ impl Node {
     }
 
     pub fn transaction(&self, id: Hash32) -> Option<Transaction> {
-        self.mempool.lock().get(id).or_else(|| {
+        let pending = self.mempool.lock().get(id);
+        pending.or_else(|| {
             self.chain
                 .read()
                 .blocks()

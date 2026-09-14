@@ -24,14 +24,14 @@ Die Bibliothek kommt neben das Programm oder in `lib/`. Alternativ setzt `PARITR
 | Linux (glibc) | x86_64, AArch64 | Release/Tier 1 | `install.sh`, Systemd oder Container |
 | macOS | Intel x86_64, Apple Silicon | Release/Tier 1 | `install.sh`, LaunchAgent |
 | Windows 10/11 | x86_64 | Release/Tier 1 | `install.ps1`, Task Scheduler |
-| Windows 11 ARM | ARM64 | x64-Bundle unter Windows-Emulation | `install.ps1` |
+| Windows 11 ARM | ARM64 | natives Bundle, portabler RandomX-Interpreter | `install.ps1` |
 | Linux | ARMv7 hard-float, RISC-V 64, ppc64le | Source/Tier 2 | lokaler Source-Build mit `install.sh`; Light empfohlen |
 | FreeBSD | x86_64, AArch64 | Source/Tier 2 | `install.sh`, rc.d |
 | OCI/Docker | linux/amd64, linux/arm64 | Release/Tier 1 | `docker buildx` / Compose |
 
 Tier 1 wird nativ im CI getestet und als Release gebündelt. Tier 2 besitzt vollständige Build-/Servicepfade, benötigt vor einem Mainnet-Rollout aber Hardware-CI und Langzeittests. 32-Bit-Windows, iOS/Android, WebAssembly und Big-Endian-Konsens-Clients sind keine Full-Node-Ziele. Das Binärformat selbst ist architekturunabhängig; alle Zahlen sind explizit little-endian.
 
-Der Windows-ARM-Weg ist absichtlich x64-emuliert: Der Rust-Kern lässt sich nativ für ARM64 prüfen, aber die gepflegte RandomX-v1-Windows-Bibliothek stellt dort keinen verlässlichen nativen Produktionspfad bereit. Linux/macOS AArch64 laufen nativ.
+Windows ARM64 verwendet nativ den portablen RandomX-v1-Interpreter: CMake erhält `-A ARM64 -DARM_ID=portable`, um den GNU/POSIX-A64-JIT nicht mit MSVC zu kompilieren. `/fp:strict` erhält dynamische Rundungsmodi. Light und Fast bleiben verfügbar, Mining ist ohne JIT langsamer. Der Release-Workflow prüft den offiziellen Hashvektor vor Veröffentlichung. Linux/macOS AArch64 und Windows x64 behalten ihren JIT.
 
 ## Qualitätsprüfungen
 

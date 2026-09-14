@@ -258,6 +258,15 @@ pub fn management_router(node: Arc<Node>) -> Router {
             }),
         )
         .route(
+            "/logo.svg",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "image/svg+xml")],
+                    include_str!("admin/logo.svg"),
+                )
+            }),
+        )
+        .route(
             "/style.css",
             get(|| async {
                 (
@@ -273,18 +282,30 @@ pub async fn serve(node: Arc<Node>) -> anyhow::Result<()> {
     let public_address: SocketAddr = node.config.public_bind.parse()?;
     let admin_address: SocketAddr = node.config.admin_bind.parse()?;
     let management_address: SocketAddr = node.config.management_bind.parse()?;
-    if public_address == admin_address
-        || public_address == management_address
-        || admin_address == management_address
+    if public_address.port() == admin_address.port()
+        || public_address.port() == management_address.port()
     {
-        anyhow::bail!("public, admin and management listeners must be different");
+        anyhow::bail!("public and management ports must be different");
     }
     let public_listener = tokio::net::TcpListener::bind(public_address).await?;
-    let admin_listener = tokio::net::TcpListener::bind(admin_address).await?;
     let management_listener = tokio::net::TcpListener::bind(management_address).await?;
     tracing::info!(%public_address, "public RPC/P2P listening");
-    tracing::info!(%admin_address, "loopback admin API listening");
-    tracing::info!(%management_address, "LAN management UI listening");
+    tracing::info!(%management_address, "management UI and authenticated admin API listening");
+    if admin_address.port() == management_address.port() {
+        anyhow::ensure!(
+            admin_address.is_ipv4() == management_address.is_ipv4()
+                && (management_address.ip().is_unspecified()
+                    || management_address.ip() == admin_address.ip()),
+            "shared management listener must also accept the loopback admin address"
+        );
+        tokio::try_join!(
+            axum::serve(public_listener, public_router(Arc::clone(&node))),
+            axum::serve(management_listener, management_router(node)),
+        )?;
+        return Ok(());
+    }
+    // Keep explicitly configured legacy installations with a separate port working.
+    let admin_listener = tokio::net::TcpListener::bind(admin_address).await?;
     tokio::try_join!(
         axum::serve(public_listener, public_router(Arc::clone(&node))),
         axum::serve(admin_listener, admin_router(Arc::clone(&node))),

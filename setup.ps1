@@ -23,7 +23,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$NodeVersion = '4.0.1-rc.1'
+$NodeVersion = '4.0.1-rc.2'
 $ProtocolVersion = 9
 $PortWasSpecified = $PSBoundParameters.ContainsKey('Port')
 $Source = $Source.TrimEnd('/')
@@ -181,7 +181,7 @@ function Install-Container {
         if ($listenLine) { $listenHost = $listenLine.Substring('PARITR_LISTEN_HOST='.Length) }
     }
     if ($PublicUrl -or $OpenFirewall) { $listenHost = '0.0.0.0' }
-    @("PARITR_IMAGE_REF=$resolvedImage", "PARITR_LISTEN_HOST=$listenHost", "PARITR_PUBLIC_PORT=$Port", "PARITR_MANAGEMENT_HOST=0.0.0.0", "PARITR_MANAGEMENT_PORT=5052") |
+    @("PARITR_IMAGE_REF=$resolvedImage", "PARITR_LISTEN_HOST=$listenHost", "PARITR_PUBLIC_PORT=$Port", "PARITR_MANAGEMENT_HOST=0.0.0.0", "PARITR_MANAGEMENT_PORT=5051") |
         Set-Content -LiteralPath (Join-Path $Dir '.env') -Encoding ASCII
     @("mode=docker", "version=$NodeVersion", "source=$Source") |
         Set-Content -LiteralPath (Join-Path $Dir '.paritr-deployment') -Encoding ASCII
@@ -192,7 +192,7 @@ function Install-Container {
     $hasConfig = $LASTEXITCODE -eq 0
     if (-not $hasConfig) {
         $mode = if ($Fast -or $Address) { 'fast' } else { 'light' }
-        $arguments = $compose + @('run','--rm','--no-deps','paritr-node','init','--public-bind','0.0.0.0:5050','--admin-bind','127.0.0.1:5051','--management-bind','0.0.0.0:5052','--mining-threads',[string]$Cores,'--mining-intensity',[string]$Intensity,'--randomx-mode',$mode)
+        $arguments = $compose + @('run','--rm','--no-deps','paritr-node','init','--public-bind','0.0.0.0:5050','--admin-bind','127.0.0.1:5051','--management-bind','0.0.0.0:5051','--mining-threads',[string]$Cores,'--mining-intensity',[string]$Intensity,'--randomx-mode',$mode)
         if ($Address) { $arguments += @('--miner-address',$Address,'--enable-mining') }
         if ($PublicUrl) { $arguments += @('--public-url',$PublicUrl) }
         Invoke-Docker $arguments | Out-Null
@@ -219,7 +219,7 @@ function Install-Container {
     if (Test-Administrator) {
         Get-NetFirewallRule -DisplayName 'Paritr local management' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
         Get-NetFirewallRule -DisplayName 'Paritr mDNS' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-        New-NetFirewallRule -DisplayName 'Paritr local management' -Direction Inbound -Protocol TCP -LocalPort 5052 -RemoteAddress LocalSubnet -Profile Private -Action Allow | Out-Null
+        New-NetFirewallRule -DisplayName 'Paritr local management' -Direction Inbound -Protocol TCP -LocalPort 5051 -RemoteAddress LocalSubnet -Profile Private -Action Allow | Out-Null
         New-NetFirewallRule -DisplayName 'Paritr mDNS' -Direction Inbound -Protocol UDP -LocalPort 5353 -RemoteAddress LocalSubnet -Profile Private -Action Allow | Out-Null
     }
 }

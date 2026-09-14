@@ -65,7 +65,7 @@ impl Default for Config {
             network: CHAIN_ID.to_owned(),
             public_bind: "0.0.0.0:5050".to_owned(),
             admin_bind: "127.0.0.1:5051".to_owned(),
-            management_bind: "0.0.0.0:5052".to_owned(),
+            management_bind: "0.0.0.0:5051".to_owned(),
             data_dir: PathBuf::from("data"),
             randomx_library: None,
             randomx_mode: MiningMode::Light,
@@ -101,6 +101,11 @@ impl Config {
         } else {
             Self::default()
         };
+        // Migrate the previous default to the shared UI/API listener.
+        // Custom addresses remain unchanged.
+        if config.management_bind == "0.0.0.0:5052" && config.admin_bind == "127.0.0.1:5051" {
+            config.management_bind = "0.0.0.0:5051".to_owned();
+        }
         if config.data_dir.is_relative() {
             config.data_dir = path
                 .parent()

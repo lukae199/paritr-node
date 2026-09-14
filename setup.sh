@@ -2,7 +2,7 @@
 # Unified Paritr Protocol 9 setup for Linux, macOS and FreeBSD.
 set -Eeuo pipefail
 
-NODE_VERSION="4.0.1-rc.1"
+NODE_VERSION="4.0.1-rc.2"
 PROTOCOL_VERSION="9"
 SOURCE_BASE="${PARITR_SOURCE:-https://paritr.highactive.de/downloads}"
 DEPLOYMENT="auto"
@@ -301,7 +301,7 @@ install_container() {
   if [[ -f "$NODE_DIR/.env" ]]; then existing_listen="$(sed -nE 's/^PARITR_LISTEN_HOST=(127\.0\.0\.1|0\.0\.0\.0)$/\1/p' "$NODE_DIR/.env" | head -n 1)"; fi
   [[ -z "$existing_listen" ]] || listen_host="$existing_listen"
   [[ -z "$PUBLIC_URL" && "$OPEN_FIREWALL" -eq 0 ]] || listen_host="0.0.0.0"
-  printf 'PARITR_IMAGE_REF=%s\nPARITR_LISTEN_HOST=%s\nPARITR_PUBLIC_PORT=%s\nPARITR_MANAGEMENT_HOST=0.0.0.0\nPARITR_MANAGEMENT_PORT=5052\n' "$IMAGE_REF" "$listen_host" "$PORT" >"$NODE_DIR/.env"
+  printf 'PARITR_IMAGE_REF=%s\nPARITR_LISTEN_HOST=%s\nPARITR_PUBLIC_PORT=%s\nPARITR_MANAGEMENT_HOST=0.0.0.0\nPARITR_MANAGEMENT_PORT=5051\n' "$IMAGE_REF" "$listen_host" "$PORT" >"$NODE_DIR/.env"
   chmod 0600 "$NODE_DIR/.env"
   printf 'mode=docker\nversion=%s\nsource=%s\n' "$NODE_VERSION" "$SOURCE_BASE" >"$NODE_DIR/.paritr-deployment"
   chmod 0600 "$NODE_DIR/.paritr-deployment"
@@ -311,7 +311,7 @@ install_container() {
   }
   compose pull paritr-node
   if ! compose run --rm --no-deps --entrypoint /bin/sh paritr-node -c 'test -f /var/lib/paritr/config.json'; then
-    local init_args=(run --rm --no-deps paritr-node init --public-bind "0.0.0.0:5050" --admin-bind "127.0.0.1:5051" --management-bind "0.0.0.0:5052" --mining-threads "$CORES" --mining-intensity "$INTENSITY" --randomx-mode "$MODE")
+    local init_args=(run --rm --no-deps paritr-node init --public-bind "0.0.0.0:5050" --admin-bind "127.0.0.1:5051" --management-bind "0.0.0.0:5051" --mining-threads "$CORES" --mining-intensity "$INTENSITY" --randomx-mode "$MODE")
     [[ -z "$ADDRESS" ]] || init_args+=(--miner-address "$ADDRESS" --enable-mining)
     [[ -z "$PUBLIC_URL" ]] || init_args+=(--public-url "$PUBLIC_URL")
     compose "${init_args[@]}"

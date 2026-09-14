@@ -21,7 +21,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$NodeVersion = '4.0.1-rc.1'
+$NodeVersion = '4.0.1-rc.2'
 $ProtocolVersion = 9
 $ChainId = 'paritr-mainnet'
 $RandomXTag = 'v1.2.3'
@@ -103,16 +103,19 @@ try {
             if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool is required for a source install." }
         }
         Push-Location $ScriptDir
-        try { Invoke-Checked 'cargo.exe' @('build','--release','--locked') } finally { Pop-Location }
-        Copy-Item -LiteralPath (Join-Path $ScriptDir 'target\release\paritr-node.exe') -Destination $Binary -Force
+        try { Invoke-Checked 'cargo.exe' @('build','--release','--locked','--target',$Target) } finally { Pop-Location }
+        Copy-Item -LiteralPath (Join-Path $ScriptDir "target\$Target\release\paritr-node.exe") -Destination $Binary -Force
 
         $rxSource = Join-Path $Temporary 'RandomX'
         Invoke-Checked 'git.exe' @('clone','--quiet','--depth','1','--branch',$RandomXTag,'https://github.com/tevador/RandomX.git',$rxSource)
         $actual = (& git.exe -C $rxSource rev-parse HEAD).Trim()
         if ($actual -ne $RandomXCommit) { throw "RandomX tag identity mismatch: $actual" }
         $rxBuild = Join-Path $rxSource 'build'
-        Invoke-Checked 'cmake.exe' @('-S',$rxSource,'-B',$rxBuild,'-DCMAKE_BUILD_TYPE=Release','-DCMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON','-DBUILD_SHARED_LIBS=ON','-DARCH=native')
-        Invoke-Checked 'cmake.exe' @('--build',$rxBuild,'--config','Release','--parallel')
+        $rxArch = if ($Target -eq 'aarch64-pc-windows-msvc') { 'ARM64' } else { 'x64' }
+        $rxOptions = @('-S',$rxSource,'-B',$rxBuild,'-A',$rxArch,'-DCMAKE_BUILD_TYPE=Release','-DCMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON','-DBUILD_SHARED_LIBS=ON','-DCMAKE_POLICY_DEFAULT_CMP0091=NEW','-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded','-DCMAKE_CXX_FLAGS=/fp:strict')
+        if ($rxArch -eq 'ARM64') { $rxOptions += '-DARM_ID=portable' }
+        Invoke-Checked 'cmake.exe' $rxOptions
+        Invoke-Checked 'cmake.exe' @('--build',$rxBuild,'--config','Release','--target','randomx','--parallel')
         $rxDll = Get-ChildItem -LiteralPath $rxBuild -Recurse -File | Where-Object { $_.Name -in @('randomx.dll','librandomx.dll') } | Select-Object -First 1
         if (-not $rxDll) { throw 'RandomX shared library build did not produce a DLL.' }
         Copy-Item -LiteralPath $rxDll.FullName -Destination $Dll -Force
@@ -140,7 +143,7 @@ try {
     $mode = if ($Light) { 'light' } elseif ($Fast -or $Address) { 'fast' } else { 'light' }
     if (-not (Test-Path -LiteralPath $Config)) {
         $publicBindHost = if ($PublicUrl -or $OpenFirewall) { '0.0.0.0' } else { '127.0.0.1' }
-        $arguments = @('--config',$Config,'init','--public-bind',"${publicBindHost}:$Port",'--admin-bind','127.0.0.1:5051','--management-bind','0.0.0.0:5052','--mining-threads',[string]$Cores,'--mining-intensity',[string]$Intensity,'--randomx-mode',$mode)
+        $arguments = @('--config',$Config,'init','--public-bind',"${publicBindHost}:$Port",'--admin-bind','127.0.0.1:5051','--management-bind','0.0.0.0:5051','--mining-threads',[string]$Cores,'--mining-intensity',[string]$Intensity,'--randomx-mode',$mode)
         if ($Address) { $arguments += @('--miner-address',$Address,'--enable-mining') }
         if ($PublicUrl) { $arguments += @('--public-url',$PublicUrl) }
         Invoke-Checked $Binary $arguments
@@ -194,7 +197,7 @@ Set-Location -LiteralPath '$escapedDir'
     if (Test-Administrator) {
         Get-NetFirewallRule -DisplayName 'Paritr local management' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
         Get-NetFirewallRule -DisplayName 'Paritr mDNS' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-        New-NetFirewallRule -DisplayName 'Paritr local management' -Direction Inbound -Protocol TCP -LocalPort 5052 -RemoteAddress LocalSubnet -Profile Private -Action Allow | Out-Null
+        New-NetFirewallRule -DisplayName 'Paritr local management' -Direction Inbound -Protocol TCP -LocalPort 5051 -RemoteAddress LocalSubnet -Profile Private -Action Allow | Out-Null
         New-NetFirewallRule -DisplayName 'Paritr mDNS' -Direction Inbound -Protocol UDP -LocalPort 5353 -RemoteAddress LocalSubnet -Profile Private -Action Allow | Out-Null
     } else {
         Write-Warning 'Run once as Administrator to open the local management and mDNS firewall rules for the Private network profile.'

@@ -2,7 +2,7 @@
 # Paritr Protocol 9 installer for Linux, macOS and FreeBSD.
 set -Eeuo pipefail
 
-NODE_VERSION="4.0.1-rc.1"
+NODE_VERSION="4.0.1-rc.2"
 PROTOCOL_VERSION="9"
 CHAIN_ID="paritr-mainnet"
 RANDOMX_TAG="v1.2.3"
@@ -155,7 +155,7 @@ fi
 if [[ ! -f "$CONFIG" ]]; then
   PUBLIC_BIND_HOST="127.0.0.1"
   [[ -z "$PUBLIC_URL" && "$OPEN_FIREWALL" -eq 0 ]] || PUBLIC_BIND_HOST="0.0.0.0"
-  INIT=("$NODE_DIR/paritr-node" --config "$CONFIG" init --public-bind "$PUBLIC_BIND_HOST:$PORT" --admin-bind "127.0.0.1:5051" --management-bind "0.0.0.0:5052" --mining-threads "$CORES" --mining-intensity "$INTENSITY" --randomx-mode "$MODE")
+  INIT=("$NODE_DIR/paritr-node" --config "$CONFIG" init --public-bind "$PUBLIC_BIND_HOST:$PORT" --admin-bind "127.0.0.1:5051" --management-bind "0.0.0.0:5051" --mining-threads "$CORES" --mining-intensity "$INTENSITY" --randomx-mode "$MODE")
   [[ -z "$ADDRESS" ]] || INIT+=(--miner-address "$ADDRESS" --enable-mining)
   [[ -z "$PUBLIC_URL" ]] || INIT+=(--public-url "$PUBLIC_URL")
   "${INIT[@]}"
@@ -254,11 +254,11 @@ fi
 # firewall is active, allow them only from private address ranges.
 if command -v ufw >/dev/null 2>&1 && as_root ufw status | grep -q '^Status: active'; then
   for subnet in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do
-    as_root ufw allow from "$subnet" to any port 5052 proto tcp >/dev/null
+    as_root ufw allow from "$subnet" to any port 5051 proto tcp >/dev/null
     as_root ufw allow from "$subnet" to any port 5353 proto udp >/dev/null
   done
 elif command -v firewall-cmd >/dev/null 2>&1 && as_root firewall-cmd --state >/dev/null 2>&1; then
-  as_root firewall-cmd --permanent --zone=home --add-port=5052/tcp >/dev/null
+  as_root firewall-cmd --permanent --zone=home --add-port=5051/tcp >/dev/null
   as_root firewall-cmd --permanent --zone=home --add-port=5353/udp >/dev/null
   as_root firewall-cmd --reload >/dev/null
 fi

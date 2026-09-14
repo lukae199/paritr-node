@@ -26,7 +26,7 @@ ENV PARITR_RANDOMX_LIBRARY=/usr/local/lib/librandomx.so
 WORKDIR /var/lib/paritr
 RUN chown -R paritr:paritr /var/lib/paritr
 USER 10001:10001
-EXPOSE 5050 5052
+EXPOSE 5050 5051
 VOLUME ["/var/lib/paritr"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD curl -fsS http://127.0.0.1:5050/health || exit 1
 ENTRYPOINT ["paritr-node", "--config", "/var/lib/paritr/config.json"]

@@ -3,6 +3,14 @@
 Diese Anleitung beschreibt die Endanwender-Installation. Für die Veröffentlichung
 der Pakete gilt zusätzlich `deployment/README.md`.
 
+Ab 4.0.1-rc.2 teilen sich Admin-API und Oberfläche Port **5051**. Die bisherige
+Standardkonfiguration `management_bind=0.0.0.0:5052` wird beim Laden automatisch
+auf `0.0.0.0:5051` umgestellt, wenn `admin_bind=127.0.0.1:5051` gilt.
+Eigene Portkonfigurationen bleiben erhalten. Bestehende Docker-Installationen
+benötigen die neue Compose-Datei mit Mapping `5051:5051`; den Container anschließend
+neu erstellen. Bei manuellen Firewall-Regeln 5051 nur für das eigene LAN erlauben.
+Öffentlich bleibt 5050; Pairing verwendet weiterhin ausgehendes HTTPS zum Portal.
+
 ## Unterstützte Wege
 
 | Plattform | `auto` verwendet | Alternativen |
@@ -46,8 +54,8 @@ Am Ende der Installation werden die individuelle `.local`-Adresse und das
 zufällig erzeugte Admin-Secret einmal im Terminal angezeigt. Später lassen sich
 beide mit `manage.sh access` beziehungsweise `manage.ps1 access` erneut abrufen.
 Die Oberfläche ist normalerweise unter einer Adresse wie
-`http://pnode-a7f3c9e1.local:5052` erreichbar; auf demselben Gerät funktioniert
-immer `http://127.0.0.1:5052`.
+`http://pnode-a7f3c9e1.local:5051` erreichbar; auf demselben Gerät funktioniert
+immer `http://127.0.0.1:5051`.
 
 Die Browser-Seite zeigt Status, Höhe, Peers, Hashrate, Laufzeit und Logs. Dort
 lassen sich der Node-Betrieb starten/stoppen/neustarten sowie Mining, Threads,
