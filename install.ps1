@@ -110,6 +110,9 @@ try {
         Invoke-Checked 'git.exe' @('clone','--quiet','--depth','1','--branch',$RandomXTag,'https://github.com/tevador/RandomX.git',$rxSource)
         $actual = (& git.exe -C $rxSource rev-parse HEAD).Trim()
         if ($actual -ne $RandomXCommit) { throw "RandomX tag identity mismatch: $actual" }
+        $rxPatch = Join-Path $ScriptDir 'packaging/randomx-msvc-ssse3.patch'
+        Invoke-Checked 'git.exe' @('-C',$rxSource,'apply','--check',$rxPatch)
+        Invoke-Checked 'git.exe' @('-C',$rxSource,'apply',$rxPatch)
         $rxBuild = Join-Path $rxSource 'build'
         $rxArch = if ($Target -eq 'aarch64-pc-windows-msvc') { 'ARM64' } else { 'x64' }
         $rxOptions = @('-S',$rxSource,'-B',$rxBuild,'-A',$rxArch,'-DCMAKE_BUILD_TYPE=Release','-DCMAKE_WINDOWS_EXPORT_ALL_SYMBOLS=ON','-DBUILD_SHARED_LIBS=ON','-DCMAKE_POLICY_DEFAULT_CMP0091=NEW','-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded','-DCMAKE_CXX_FLAGS=/fp:strict')

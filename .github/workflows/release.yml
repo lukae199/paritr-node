@@ -89,6 +89,11 @@ jobs:
           git clone --quiet --depth 1 --branch v1.2.3 https://github.com/tevador/RandomX.git RandomX
           if ($LASTEXITCODE -ne 0) { throw 'RandomX download failed' }
           if ((git -C RandomX rev-parse HEAD).Trim() -ne '12f2c2ffe2108d6cf54c391fee33c8bc3646cdab') { throw 'RandomX tag identity mismatch' }
+          # Upstream enables SSSE3 for every MSVC target, including ARM64.
+          git -C RandomX apply --check "$env:GITHUB_WORKSPACE/packaging/randomx-msvc-ssse3.patch"
+          if ($LASTEXITCODE -ne 0) { throw 'RandomX MSVC patch does not match pinned source' }
+          git -C RandomX apply "$env:GITHUB_WORKSPACE/packaging/randomx-msvc-ssse3.patch"
+          if ($LASTEXITCODE -ne 0) { throw 'RandomX MSVC patch failed' }
           $rxOptions = @()
           if ('${{ matrix.cmake_arch }}' -eq 'ARM64') {
             # v1.2.3's A64 JIT uses GNU/POSIX assembly, unsupported by MSVC.

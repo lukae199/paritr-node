@@ -1,0 +1,12 @@
+diff --git a/src/argon2_ssse3.c b/src/argon2_ssse3.c
+--- a/src/argon2_ssse3.c
++++ b/src/argon2_ssse3.c
+@@ -34,7 +34,7 @@
+ #include "argon2.h"
+ 
+-#if defined(_MSC_VER) //MSVC doesn't define SSSE3
++#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86)) //MSVC x86/x64 doesn't define SSSE3
+ #define __SSSE3__
+ #endif
+ 
+ void randomx_argon2_fill_segment_ssse3(const argon2_instance_t* instance,

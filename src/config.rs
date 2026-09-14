@@ -104,7 +104,7 @@ impl Config {
         // Migrate the previous default to the shared UI/API listener.
         // Custom addresses remain unchanged.
         if config.management_bind == "0.0.0.0:5052" && config.admin_bind == "127.0.0.1:5051" {
-            config.management_bind = "0.0.0.0:5051".to_owned();
+            "0.0.0.0:5051".clone_into(&mut config.management_bind);
         }
         if config.data_dir.is_relative() {
             config.data_dir = path
