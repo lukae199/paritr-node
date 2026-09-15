@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -243,6 +243,8 @@ pub struct Node {
     storage: Arc<Storage>,
     pow: Arc<RandomX>,
     chain: RwLock<Chain>,
+    block_processing: Mutex<()>,
+    discovered_peers: Mutex<BTreeSet<String>>,
     mempool: Mutex<Mempool>,
     workshares: Mutex<WorksharePool>,
     identity_secret: SecretKey,
@@ -299,6 +301,8 @@ impl Node {
             storage,
             pow,
             chain: RwLock::new(chain),
+            block_processing: Mutex::new(()),
+            discovered_peers: Mutex::new(BTreeSet::new()),
             mempool: Mutex::new(Mempool::new(RelayPolicy::default())),
             workshares: Mutex::new(pool),
             identity_secret,
@@ -800,16 +804,18 @@ impl Node {
     }
 
     pub fn submit_block(&self, block: &Block) -> Result<ChainEvent, ConsensusError> {
-        let mut live = self.chain.write();
-        if live.block_by_hash(block.id()).is_some() {
+        // Serialize commits without blocking status/account readers during PoW
+        // validation or SQLite writes.
+        let _processing = self.block_processing.lock();
+        let mut candidate = self.chain.read().clone();
+        if candidate.block_by_hash(block.id()).is_some() {
             return Ok(ChainEvent::Known);
         }
-        let old_tip = live.tip().id();
-        let mut candidate = live.clone();
+        let old_tip = candidate.tip().id();
         let event = if block.header.previous_block == old_tip {
             candidate.append(block.clone(), self.pow.as_ref(), &SystemTimeSource)?
         } else {
-            let candidate_blocks = self.assemble_candidate(&live, block.clone())?;
+            let candidate_blocks = self.assemble_candidate(&candidate, block.clone())?;
             candidate.consider_chain(candidate_blocks, self.pow.as_ref(), &SystemTimeSource)?
         };
         self.storage
@@ -828,7 +834,7 @@ impl Node {
                         .iter()
                         .flat_map(|active_block| active_block.transactions.iter().cloned())
                         .collect::<Vec<_>>();
-                    let detached = live.blocks()[first..]
+                    let detached = self.chain.read().blocks()[first..]
                         .iter()
                         .flat_map(|old_block| old_block.transactions.iter().cloned())
                         .collect::<Vec<_>>();
@@ -843,6 +849,7 @@ impl Node {
                 .iter()
                 .map(Transaction::id)
                 .collect::<HashSet<_>>();
+            let mut active = self.chain.write();
             let mut mempool = self.mempool.lock();
             mempool.remove_confirmed(&confirmed);
             for transaction in detached {
@@ -854,7 +861,7 @@ impl Node {
             }
             drop(mempool);
             let new_tip = candidate.tip().id();
-            *live = candidate;
+            *active = candidate;
             self.workshares.lock().reset(new_tip);
             self.pending_workshares.lock().clear();
             self.generation.fetch_add(1, Ordering::SeqCst);
@@ -934,8 +941,7 @@ impl Node {
     pub fn submit_workshare(&self, share: Workshare) -> Result<bool, ConsensusError> {
         let id = share.id();
         let chain = self.chain.read();
-        let mut pool = self.workshares.lock();
-        let witness = pool.candidate_witness(share.clone())?;
+        let witness = self.workshares.lock().candidate_witness(share.clone())?;
         consensus::validation::validate_workshares(
             &witness,
             chain.blocks(),
@@ -943,8 +949,7 @@ impl Node {
             self.pow.as_ref(),
             unix_time().saturating_add(consensus::MAX_FUTURE_BLOCK_TIME),
         )?;
-        let changed = pool.accept(share)?;
-        drop(pool);
+        let changed = self.workshares.lock().accept(share)?;
         drop(chain);
         if changed {
             self.generation.fetch_add(1, Ordering::SeqCst);
@@ -1066,6 +1071,34 @@ impl Node {
         )
     }
 
+    pub fn learn_peer(&self, value: &str) {
+        // Gossip may only introduce public TLS endpoints. DNS/IP validation
+        // happens again at connect time, before any socket is opened.
+        if value.len() > 512 {
+            return;
+        }
+        let Some(url) = crate::p2p::normalize_peer_url(value) else {
+            return;
+        };
+        if !url.starts_with("wss://") {
+            return;
+        }
+        let mut peers = self.discovered_peers.lock();
+        if peers.len() < crate::p2p::MAX_PEER_URLS {
+            peers.insert(url);
+        }
+    }
+
+    pub fn peer_addresses(&self) -> Vec<String> {
+        let mut peers = self.discovered_peers.lock().clone();
+        if let Some(url) = self.mining_config().public_url {
+            if let Some(url) = crate::p2p::normalize_peer_url(&url) {
+                peers.insert(url);
+            }
+        }
+        peers.into_iter().take(crate::p2p::MAX_PEER_URLS).collect()
+    }
+
     pub fn peer_connected(&self, id: Hash32, inbound: bool) -> bool {
         let mut peers = self.connected_peers.lock();
         if peers.contains_key(&id) {
@@ -1132,7 +1165,13 @@ impl Node {
     #[allow(clippy::too_many_lines)]
     pub fn handle_wire(&self, peer: Hash32, message: WireMessage) -> Option<WireMessage> {
         match message {
-            WireMessage::Hello(_) | WireMessage::Pong(_) | WireMessage::Peers(_) => None,
+            WireMessage::Hello(_) | WireMessage::Pong(_) => None,
+            WireMessage::Peers(peers) => {
+                for url in peers {
+                    self.learn_peer(&url);
+                }
+                None
+            }
             WireMessage::Ping(nonce) => Some(WireMessage::Pong(nonce)),
             WireMessage::Inventory { kind, id } => match kind {
                 ObjectKind::Block if self.block_by_hash(id).is_none() => {

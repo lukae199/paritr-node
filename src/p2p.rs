@@ -392,18 +392,46 @@ pub enum PeerError {
     RateLimit,
 }
 
+async fn send_message<S, M>(socket: &mut S, message: M) -> Result<(), PeerError>
+where
+    S: futures_util::Sink<M> + Unpin,
+    S::Error: std::fmt::Display,
+{
+    tokio::time::timeout(std::time::Duration::from_secs(10), socket.send(message))
+        .await
+        .map_err(|_| PeerError::WebSocket("write timeout".to_owned()))?
+        .map_err(|error| PeerError::WebSocket(error.to_string()))
+}
+
+async fn process_message(
+    node: Arc<Node>,
+    peer: Hash32,
+    request: WireMessage,
+) -> Result<Option<WireMessage>, PeerError> {
+    static VALIDATION_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let permit = VALIDATION_SLOTS
+        .acquire()
+        .await
+        .map_err(|_| PeerError::Handshake)?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        node.handle_wire(peer, request)
+    })
+    .await
+    .map_err(|error| PeerError::WebSocket(error.to_string()))
+}
+
 #[allow(clippy::too_many_lines)]
 pub async fn serve_socket(mut socket: WebSocket, node: Arc<Node>) -> Result<(), PeerError> {
     if !node.is_enabled() {
         return Err(PeerError::Handshake);
     }
     let hello = node.local_hello(Hash32::ZERO);
-    socket
-        .send(Message::Binary(
-            WireMessage::Hello(hello.clone()).encode_frame().into(),
-        ))
-        .await
-        .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+    send_message(
+        &mut socket,
+        Message::Binary(WireMessage::Hello(hello.clone()).encode_frame().into()),
+    )
+    .await?;
 
     let first = tokio::time::timeout(std::time::Duration::from_secs(10), socket.next())
         .await
@@ -422,42 +450,44 @@ pub async fn serve_socket(mut socket: WebSocket, node: Arc<Node>) -> Result<(), 
     {
         return Err(PeerError::Handshake);
     }
-    socket
-        .send(Message::Binary(
+    send_message(
+        &mut socket,
+        Message::Binary(
             WireMessage::Hello(node.local_hello(remote.challenge))
                 .encode_frame()
                 .into(),
-        ))
-        .await
-        .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+        ),
+    )
+    .await?;
     let remote_id = remote.node_id();
     if !node.peer_connected(remote_id, true) {
         return Err(PeerError::Handshake);
     }
+    node.learn_peer(&remote.listen_url);
     let mut events = node.subscribe();
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(30));
     let mut budget = MessageBudget::new();
+    let mut last_received = Instant::now();
+    let mut maintenance = tokio::time::interval(std::time::Duration::from_secs(1));
     let result = async {
         if remote.tip != node.chain_snapshot().tip {
-            socket
-                .send(Message::Binary(
+            send_message(&mut socket, Message::Binary(
                     WireMessage::GetHeaders {
                         locator: node.block_locator(),
                         stop: Hash32::ZERO,
                     }
                     .encode_frame()
                     .into(),
-                ))
-                .await
-                .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+                )).await?;
         }
         loop {
             tokio::select! {
-                () = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-                    if !node.is_enabled() { break; }
+                _ = maintenance.tick() => {
+                    if !node.is_enabled() || last_received.elapsed().as_secs() > 90 { break; }
                 }
                 incoming = socket.next() => {
                     let Some(message) = incoming else { break };
+                    last_received = Instant::now();
                     let message = message.map_err(|error| PeerError::WebSocket(error.to_string()))?;
                     match message {
                         Message::Binary(bytes) => {
@@ -465,30 +495,23 @@ pub async fn serve_socket(mut socket: WebSocket, node: Arc<Node>) -> Result<(), 
                             if !budget.allow(&request) {
                                 return Err(PeerError::RateLimit);
                             }
-                            if let Some(response) = node.handle_wire(remote_id, request) {
-                                socket
-                                    .send(Message::Binary(response.encode_frame().into()))
-                                    .await
-                                    .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+                            if let Some(response) = process_message(Arc::clone(&node), remote_id, request).await? {
+                                send_message(&mut socket, Message::Binary(response.encode_frame().into())).await?;
                             }
                         }
-                        Message::Ping(payload) => socket
-                            .send(Message::Pong(payload))
-                            .await
-                            .map_err(|error| PeerError::WebSocket(error.to_string()))?,
+                        Message::Ping(payload) => send_message(&mut socket, Message::Pong(payload)).await?,
                         Message::Close(_) => break,
                         Message::Text(_) | Message::Pong(_) => {}
                     }
                 }
                 event = events.recv() => {
                     if let Ok(event) = event {
-                        socket.send(Message::Binary(event.encode_frame().into())).await
-                            .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+                        send_message(&mut socket, Message::Binary(event.encode_frame().into())).await?;
                     }
                 }
                 _ = heartbeat.tick() => {
-                    socket.send(Message::Binary(WireMessage::Ping(rand::random()).encode_frame().into())).await
-                        .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+                    send_message(&mut socket, Message::Binary(WireMessage::Peers(node.peer_addresses()).encode_frame().into())).await?;
+                    send_message(&mut socket, Message::Binary(WireMessage::Ping(rand::random()).encode_frame().into())).await?;
                 }
             }
         }
@@ -500,50 +523,63 @@ pub async fn serve_socket(mut socket: WebSocket, node: Arc<Node>) -> Result<(), 
 }
 
 pub fn spawn_outbound_manager(node: &Arc<Node>) -> Vec<tokio::task::JoinHandle<()>> {
-    let mut urls = BTreeSet::new();
-    for configured in node
-        .config
-        .seed_nodes
-        .iter()
-        .chain(node.config.peers.iter())
-    {
-        if let Some(url) = normalize_peer_url(configured) {
-            urls.insert(url);
-        } else {
-            tracing::warn!(peer = configured, "ignoring invalid peer URL");
-        }
-    }
-    urls.into_iter()
-        .take(node.config.max_outbound_peers)
-        .map(|url| {
-            let node = Arc::clone(node);
-            tokio::spawn(async move {
-                let mut delay = 2_u64;
-                loop {
-                    if !node.is_enabled() {
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        delay = 2;
-                        continue;
+    let node = Arc::clone(node);
+    vec![tokio::spawn(async move {
+        let mut tasks = tokio::task::JoinSet::new();
+        let mut running = BTreeSet::new();
+        let mut retry = std::collections::BTreeMap::new();
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(2));
+        loop {
+            tokio::select! {
+                _ = tick.tick() => {
+                    if !node.is_enabled() { continue; }
+                    let own = node.mining_config().public_url.as_deref().and_then(normalize_peer_url);
+                    let urls: BTreeSet<_> = node.config.seed_nodes.iter().chain(node.config.peers.iter())
+                        .cloned().chain(node.peer_addresses()).filter_map(|url| normalize_peer_url(&url)).collect();
+                    for url in urls {
+                        if tasks.len() >= node.config.max_outbound_peers { break; }
+                        if own.as_ref() == Some(&url) || running.contains(&url)
+                            || retry.get(&url).is_some_and(|next| Instant::now() < *next) { continue; }
+                        running.insert(url.clone());
+                        let node = Arc::clone(&node);
+                        tasks.spawn(async move {
+                            if let Err(error) = outbound_once(node, &url).await {
+                                tracing::debug!(peer = %url, %error, "outbound P2P connection ended");
+                            }
+                            url
+                        });
                     }
-                    if let Err(error) = outbound_once(Arc::clone(&node), &url).await {
-                        tracing::debug!(peer = %url, %error, "outbound P2P connection ended");
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
-                    delay = (delay * 2).min(300);
                 }
-            })
-        })
-        .collect()
+                result = tasks.join_next(), if !tasks.is_empty() => {
+                    if let Some(Ok(url)) = result {
+                        running.remove(&url);
+                        retry.insert(url, Instant::now() + std::time::Duration::from_secs(30 + rand::random::<u64>() % 15));
+                    }
+                }
+            }
+        }
+    })]
 }
 
 #[allow(clippy::too_many_lines)]
 async fn outbound_once(node: Arc<Node>, url: &str) -> Result<(), PeerError> {
     use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 
-    ensure_public_peer(url).await?;
-    let (mut socket, _) = tokio_tungstenite::connect_async(url)
-        .await
-        .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+    let (mut socket, _) = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        // Connect to the checked DNS result, not a second potentially rebound lookup.
+        let addresses = ensure_public_peer(url).await?;
+        let stream = tokio::net::TcpStream::connect(addresses.as_slice())
+            .await
+            .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+        let limits = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+            .max_message_size(Some(MAX_WIRE_FRAME))
+            .max_frame_size(Some(MAX_WIRE_FRAME));
+        tokio_tungstenite::client_async_tls_with_config(url, stream, Some(limits), None)
+            .await
+            .map_err(|error| PeerError::WebSocket(error.to_string()))
+    })
+    .await
+    .map_err(|_| PeerError::Handshake)??;
     let first = tokio::time::timeout(std::time::Duration::from_secs(10), socket.next())
         .await
         .map_err(|_| PeerError::Handshake)?
@@ -562,12 +598,11 @@ async fn outbound_once(node: Arc<Node>, url: &str) -> Result<(), PeerError> {
         return Err(PeerError::Handshake);
     }
     let response = node.local_hello(challenge.challenge);
-    socket
-        .send(TungsteniteMessage::Binary(
-            WireMessage::Hello(response.clone()).encode_frame().into(),
-        ))
-        .await
-        .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+    send_message(
+        &mut socket,
+        TungsteniteMessage::Binary(WireMessage::Hello(response.clone()).encode_frame().into()),
+    )
+    .await?;
     let acknowledgement = tokio::time::timeout(std::time::Duration::from_secs(10), socket.next())
         .await
         .map_err(|_| PeerError::Handshake)?
@@ -589,30 +624,31 @@ async fn outbound_once(node: Arc<Node>, url: &str) -> Result<(), PeerError> {
     if !node.peer_connected(remote_id, false) {
         return Err(PeerError::Handshake);
     }
+    node.learn_peer(&remote.listen_url);
     let mut events = node.subscribe();
     let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(30));
     let mut budget = MessageBudget::new();
+    let mut last_received = Instant::now();
+    let mut maintenance = tokio::time::interval(std::time::Duration::from_secs(1));
     let result = async {
         if remote.tip != node.chain_snapshot().tip {
-            socket
-                .send(TungsteniteMessage::Binary(
+            send_message(&mut socket, TungsteniteMessage::Binary(
                     WireMessage::GetHeaders {
                         locator: node.block_locator(),
                         stop: Hash32::ZERO,
                     }
                     .encode_frame()
                     .into(),
-                ))
-                .await
-                .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+                )).await?;
         }
         loop {
             tokio::select! {
-                () = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-                    if !node.is_enabled() { break; }
+                _ = maintenance.tick() => {
+                    if !node.is_enabled() || last_received.elapsed().as_secs() > 90 { break; }
                 }
                 incoming = socket.next() => {
                     let Some(message) = incoming else { break };
+                    last_received = Instant::now();
                     let message = message.map_err(|error| PeerError::WebSocket(error.to_string()))?;
                     match message {
                         TungsteniteMessage::Binary(bytes) => {
@@ -620,26 +656,23 @@ async fn outbound_once(node: Arc<Node>, url: &str) -> Result<(), PeerError> {
                             if !budget.allow(&request) {
                                 return Err(PeerError::RateLimit);
                             }
-                            if let Some(response) = node.handle_wire(remote_id, request) {
-                                socket.send(TungsteniteMessage::Binary(response.encode_frame().into())).await
-                                    .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+                            if let Some(response) = process_message(Arc::clone(&node), remote_id, request).await? {
+                                send_message(&mut socket, TungsteniteMessage::Binary(response.encode_frame().into())).await?;
                             }
                         }
-                        TungsteniteMessage::Ping(payload) => socket.send(TungsteniteMessage::Pong(payload)).await
-                            .map_err(|error| PeerError::WebSocket(error.to_string()))?,
+                        TungsteniteMessage::Ping(payload) => send_message(&mut socket, TungsteniteMessage::Pong(payload)).await?,
                         TungsteniteMessage::Close(_) => break,
                         TungsteniteMessage::Text(_) | TungsteniteMessage::Pong(_) | TungsteniteMessage::Frame(_) => {}
                     }
                 }
                 event = events.recv() => {
                     if let Ok(event) = event {
-                        socket.send(TungsteniteMessage::Binary(event.encode_frame().into())).await
-                            .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+                        send_message(&mut socket, TungsteniteMessage::Binary(event.encode_frame().into())).await?;
                     }
                 }
                 _ = heartbeat.tick() => {
-                    socket.send(TungsteniteMessage::Binary(WireMessage::Ping(rand::random()).encode_frame().into())).await
-                        .map_err(|error| PeerError::WebSocket(error.to_string()))?;
+                    send_message(&mut socket, TungsteniteMessage::Binary(WireMessage::Peers(node.peer_addresses()).encode_frame().into())).await?;
+                    send_message(&mut socket, TungsteniteMessage::Binary(WireMessage::Ping(rand::random()).encode_frame().into())).await?;
                 }
             }
         }
@@ -649,7 +682,10 @@ async fn outbound_once(node: Arc<Node>, url: &str) -> Result<(), PeerError> {
     result
 }
 
-fn normalize_peer_url(value: &str) -> Option<String> {
+pub(crate) fn normalize_peer_url(value: &str) -> Option<String> {
+    if value.len() > 512 {
+        return None;
+    }
     let raw = value.trim();
     let mut url = url::Url::parse(raw).ok()?;
     match url.scheme() {
@@ -668,31 +704,54 @@ fn normalize_peer_url(value: &str) -> Option<String> {
     if url.path().is_empty() || url.path() == "/" {
         url.set_path("/p2p/v9");
     }
+    if url.path() != "/p2p/v9" {
+        return None;
+    }
     Some(url.to_string())
 }
 
-async fn ensure_public_peer(value: &str) -> Result<(), PeerError> {
+async fn ensure_public_peer(value: &str) -> Result<Vec<std::net::SocketAddr>, PeerError> {
     let url = url::Url::parse(value).map_err(|_| PeerError::Handshake)?;
     let host = url.host_str().ok_or(PeerError::Handshake)?;
     let port = url.port_or_known_default().ok_or(PeerError::Handshake)?;
     let addresses = tokio::net::lookup_host((host, port))
         .await
         .map_err(|error| PeerError::WebSocket(error.to_string()))?;
-    let mut found = false;
+    let mut checked = Vec::new();
     for address in addresses {
-        found = true;
         let ip = address.ip();
         let private = ip.is_loopback()
             || ip.is_unspecified()
             || match ip {
-                std::net::IpAddr::V4(ip) => ip.is_private() || ip.is_link_local(),
-                std::net::IpAddr::V6(ip) => ip.is_unique_local() || ip.is_unicast_link_local(),
+                std::net::IpAddr::V4(ip) => {
+                    ip.is_private()
+                        || ip.is_link_local()
+                        || ip.is_multicast()
+                        || ip.is_broadcast()
+                        || ip.is_documentation()
+                        || ip.octets()[0] == 0
+                        || ip.octets()[0] >= 240
+                        || (ip.octets()[0] == 100 && (64..=127).contains(&ip.octets()[1]))
+                }
+                std::net::IpAddr::V6(ip) => {
+                    ip.is_unique_local()
+                        || ip.is_unicast_link_local()
+                        || ip.is_multicast()
+                        || ip.to_ipv4_mapped().is_some()
+                }
             };
         if private && !(url.scheme() == "ws" && ip.is_loopback()) {
             return Err(PeerError::Handshake);
         }
+        if checked.len() < 32 {
+            checked.push(address);
+        }
     }
-    found.then_some(()).ok_or(PeerError::Handshake)
+    if checked.is_empty() {
+        Err(PeerError::Handshake)
+    } else {
+        Ok(checked)
+    }
 }
 
 fn unix_time() -> u64 {
@@ -705,6 +764,21 @@ fn unix_time() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn discovery_keeps_private_services_out_of_public_peer_dials() {
+        assert!(ensure_public_peer("wss://127.0.0.1:5051/p2p/v9")
+            .await
+            .is_err());
+        assert!(ensure_public_peer("wss://10.0.0.1:5050/p2p/v9")
+            .await
+            .is_err());
+        assert!(normalize_peer_url("https://example.org/admin/config").is_none());
+        assert_eq!(
+            normalize_peer_url("https://example.org").as_deref(),
+            Some("wss://example.org/p2p/v9")
+        );
+    }
 
     #[test]
     fn frame_round_trip_and_magic_are_canonical() {

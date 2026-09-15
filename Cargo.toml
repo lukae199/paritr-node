@@ -1,6 +1,6 @@
 [package]
 name = "paritr-node"
-version = "4.0.1-rc.4"
+version = "4.0.1-rc.5"
 edition = "2021"
 rust-version = "1.98"
 description = "Paritr Protocol 9 full node"

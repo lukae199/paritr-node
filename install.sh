@@ -2,7 +2,7 @@
 # Paritr Protocol 9 installer for Linux, macOS and FreeBSD.
 set -Eeuo pipefail
 
-NODE_VERSION="4.0.1-rc.4"
+NODE_VERSION="4.0.1-rc.5"
 PROTOCOL_VERSION="9"
 CHAIN_ID="paritr-mainnet"
 RANDOMX_TAG="v1.2.3"

@@ -21,7 +21,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$NodeVersion = '4.0.1-rc.4'
+$NodeVersion = '4.0.1-rc.5'
 $ProtocolVersion = 9
 $ChainId = 'paritr-mainnet'
 $RandomXTag = 'v1.2.3'

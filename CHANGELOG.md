@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.0.1-rc.5 — Peer-Erkennung und Langzeitbetrieb
+
+- Authentifizierte Peers tauschen begrenzte Listen öffentlicher Node-Endpunkte
+  aus; der ausgehende Manager berücksichtigt neu gelernte Adressen laufend.
+- Verbindungs-/Schreib-Timeouts, Frame-Limits, inaktive Verbindungen schließen,
+  Wiederverbindung mit zeitlichem Zufallsversatz. Geprüfte DNS-Ergebnisse werden
+  beim Socket-Aufbau wiederverwendet, private Gossip-Ziele bleiben ausgeschlossen.
+- Block-/Share-Prüfung und häufige aufwendige API-Abfragen aus den asynchronen
+  Netzwerk-Tasks ausgelagert; parallele Hintergrundprüfungen begrenzt.
+- Keine Chain-Schreibsperre während PoW/SQLite; keine Share-Pool-Sperre während PoW.
+- Wiederholte RandomX-Verifikation identischer Seed/Header-Paare begrenzt cachen.
+- Normale SQLite-Kettenerweiterungen inkrementell statt kompletter Neuschreibung.
+- Genesis, Konsens, Konten und Datenbankformat unverändert.
+
 ## 4.0.1-rc.4 — Installation und Reward-Anzeige
 
 - Docker-Abschluss ohne Zugriff auf eine abgelaufene lokale Variable.

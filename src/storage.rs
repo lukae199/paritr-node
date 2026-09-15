@@ -153,7 +153,22 @@ impl Storage {
         let now = unix_time();
         let mut connection = self.connection.lock();
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        for block in chain.blocks() {
+        let previous: Option<(u64, Vec<u8>)> = transaction
+            .query_row(
+                "SELECT height,hash FROM active_chain ORDER BY height DESC LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let start = previous
+            .and_then(|(height, hash)| {
+                chain
+                    .block_at(height)
+                    .filter(|block| block.id().as_bytes().as_slice() == hash)
+                    .and_then(|_| usize::try_from(height.saturating_add(1)).ok())
+            })
+            .unwrap_or(0);
+        for block in &chain.blocks()[start..] {
             transaction.execute(
                 "INSERT INTO blocks(hash,height,parent,data,received_at)
                  VALUES(?1,?2,?3,?4,?5)
@@ -167,8 +182,11 @@ impl Storage {
                 ],
             )?;
         }
-        transaction.execute("DELETE FROM active_chain", [])?;
-        for block in chain.blocks() {
+        transaction.execute(
+            "DELETE FROM active_chain WHERE height >= ?1",
+            [i64::try_from(start)?],
+        )?;
+        for block in &chain.blocks()[start..] {
             transaction.execute(
                 "INSERT INTO active_chain(height,hash) VALUES(?1,?2)",
                 params![
@@ -294,6 +312,15 @@ mod tests {
         let path = directory.path().join("chain.sqlite");
         let storage = Storage::open(&path).unwrap();
         let chain = Chain::genesis();
+        storage.save_chain(&chain).unwrap();
+        storage
+            .connection
+            .lock()
+            .execute_batch(
+                "CREATE TEMP TRIGGER preserve_prefix BEFORE DELETE ON active_chain
+             BEGIN SELECT RAISE(ABORT, 'unchanged chain prefix must not be rewritten'); END;",
+            )
+            .unwrap();
         storage.save_chain(&chain).unwrap();
         drop(storage);
 

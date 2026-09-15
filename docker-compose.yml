@@ -2,7 +2,7 @@ services:
   paritr-node:
     build:
       context: .
-    image: paritr-node:4.0.1-rc.4
+    image: paritr-node:4.0.1-rc.5
     restart: unless-stopped
     read_only: true
     cap_drop:

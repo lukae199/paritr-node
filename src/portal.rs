@@ -166,12 +166,14 @@ pub fn spawn(node: Arc<Node>) -> tokio::task::JoinHandle<()> {
 
 async fn sync_once(
     client: &Client,
-    node: &Node,
+    node: &Arc<Node>,
     base: &Url,
     agent: &str,
     token: &str,
     results: &[CommandResult],
 ) -> anyhow::Result<Vec<PortalCommand>> {
+    let status_node = Arc::clone(node);
+    let status = tokio::task::spawn_blocking(move || status_node.status()).await?;
     let response = client
         .post(action_url(base, "node_agent_sync")?)
         .bearer_auth(token)
@@ -183,7 +185,7 @@ async fn sync_once(
             "protocol_version": consensus::PROTOCOL_VERSION,
             "node_version": consensus::NODE_VERSION,
             "public_url": node.mining_config().public_url,
-            "status": node.status(),
+            "status": status,
             "results": results,
         }))
         .send()

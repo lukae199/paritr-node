@@ -324,8 +324,24 @@ async fn health() -> Json<Health> {
     })
 }
 
-async fn status(State(node): State<Arc<Node>>) -> Json<crate::node::NodeStatus> {
-    Json(node.status())
+async fn run_blocking<T: Send + 'static>(
+    job: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, ApiError> {
+    static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+    let permit = tokio::time::timeout(Duration::from_secs(2), SLOTS.acquire())
+        .await
+        .map_err(|_| ApiError::unavailable("node is busy; retry shortly"))?
+        .map_err(|_| ApiError::unavailable("node is shutting down"))?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        job()
+    })
+    .await
+    .map_err(|error| ApiError::unavailable(error.to_string()))
+}
+
+async fn status(State(node): State<Arc<Node>>) -> Result<Json<crate::node::NodeStatus>, ApiError> {
+    Ok(Json(run_blocking(move || node.status()).await?))
 }
 
 async fn chain_params() -> Json<ChainParameters> {
@@ -449,7 +465,7 @@ async fn mining_rewards(
     Path(address): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let address = Address::from_str(&address).map_err(ApiError::bad_request)?;
-    let (total, pending) = node.mining_rewards(address);
+    let (total, pending) = run_blocking(move || node.mining_rewards(address)).await?;
     Ok(Json(serde_json::json!({
         "address": address,
         "total_mined": total,
@@ -534,8 +550,9 @@ async fn address_transactions(
         .get("offset")
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(0);
+    let transactions = run_blocking(move || node.address_history(address, limit, offset)).await?;
     Ok(Json(serde_json::json!({
-        "transactions": node.address_history(address, limit, offset),
+        "transactions": transactions,
         "limit": limit,
         "offset": offset,
     })))
@@ -574,7 +591,9 @@ async fn submit_block(
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     ensure_node_running(&node)?;
     let id = block.id();
-    let event = node.submit_block(&block).map_err(ApiError::bad_request)?;
+    let event = run_blocking(move || node.submit_block(&block))
+        .await?
+        .map_err(ApiError::bad_request)?;
     Ok((
         StatusCode::ACCEPTED,
         Json(serde_json::json!({ "block_id": id, "result": format!("{event:?}") })),
@@ -595,8 +614,8 @@ async fn submit_workshare(
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     ensure_node_running(&node)?;
     let id = workshare.id();
-    let preferred = node
-        .submit_workshare(workshare)
+    let preferred = run_blocking(move || node.submit_workshare(workshare))
+        .await?
         .map_err(ApiError::bad_request)?;
     Ok((
         StatusCode::ACCEPTED,

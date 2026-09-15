@@ -291,6 +291,7 @@ pub struct RandomX {
     mode: RandomXMode,
     context: RwLock<Arc<Context>>,
     initialization: Mutex<()>,
+    validation_cache: Mutex<std::collections::HashMap<crate::crypto::Hash32, [u8; 32]>>,
 }
 
 impl RandomX {
@@ -308,6 +309,7 @@ impl RandomX {
             mode,
             context: RwLock::new(context),
             initialization: Mutex::new(()),
+            validation_cache: Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -342,8 +344,22 @@ impl RandomX {
 
 impl PowVerifier for RandomX {
     fn hash(&self, seed: &[u8], input: &[u8]) -> Result<[u8; 32], String> {
-        self.calculate(seed, input)
-            .map_err(|error| error.to_string())
+        // A share prefix is checked repeatedly as new shares arrive. Cache only
+        // actual hash results; targets and all other consensus rules still run.
+        // domain_hash length-prefixes both inputs, including the epoch seed.
+        let key = crate::crypto::domain_hash(seed, input);
+        if let Some(hash) = self.validation_cache.lock().get(&key).copied() {
+            return Ok(hash);
+        }
+        let hash = self
+            .calculate(seed, input)
+            .map_err(|error| error.to_string())?;
+        let mut cache = self.validation_cache.lock();
+        if cache.len() >= 8_192 {
+            cache.clear();
+        }
+        cache.insert(key, hash);
+        Ok(hash)
     }
 }
 
