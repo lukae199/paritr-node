@@ -52,20 +52,18 @@ impl Storage {
             let _ = write_txn.open_table(TABLE_PEERS)?;
             let mut meta = write_txn.open_table(TABLE_METADATA)?;
 
-            if let Some(network) = meta.get("network")? {
-                let network_bytes = network.value();
-                if network_bytes != CHAIN_ID.as_bytes() {
+            let existing_network = meta.get("network")?.map(|v| v.value().to_vec());
+            if let Some(network) = existing_network {
+                if network != CHAIN_ID.as_bytes() {
                     bail!(
                         "database belongs to network {}, expected {CHAIN_ID}",
-                        String::from_utf8_lossy(network_bytes)
+                        String::from_utf8_lossy(&network)
                     );
                 }
-                let protocol = meta.get("protocol")?;
-                let genesis = meta.get("genesis")?;
-                if protocol.as_ref().map(|v| v.value())
-                    != Some(PROTOCOL_VERSION.to_le_bytes().as_slice())
-                    || genesis.as_ref().map(|v| v.value())
-                        != Some(Block::genesis().id().as_bytes().as_slice())
+                let protocol = meta.get("protocol")?.map(|v| v.value().to_vec());
+                let genesis = meta.get("genesis")?.map(|v| v.value().to_vec());
+                if protocol.as_deref() != Some(PROTOCOL_VERSION.to_le_bytes().as_slice())
+                    || genesis.as_deref() != Some(Block::genesis().id().as_bytes().as_slice())
                 {
                     bail!("database protocol/genesis identity does not match this binary");
                 }

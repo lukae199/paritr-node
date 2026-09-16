@@ -385,9 +385,7 @@ impl Node {
         };
 
         let implied_hashrate = consensus::bits_to_target(tip.header.bits)
-            .map(|target| {
-                work_as_f64(consensus::target_work(target)) / consensus::TARGET_BLOCK_TIME as f64
-            })
+            .map(|target| work_as_f64(consensus::target_work(target)) / consensus::TARGET_BLOCK_TIME as f64)
             .unwrap_or(0.0);
 
         let network_hashrate = if estimated_hashrate > 0.0 {
@@ -474,7 +472,7 @@ impl Node {
             randomx_mode: config.randomx_mode,
             randomx_fast_available: randomx_fast_available(),
             hashrate,
-            network_hashrate: hashrate.max(estimated_hashrate),
+            network_hashrate,
             estimated_hashrate,
             node_shares_submitted: self.mining_stats.workshares(),
             blocks_found,
