@@ -345,6 +345,8 @@ install_container() {
     docker_cmd compose --project-directory "$NODE_DIR" --env-file "$NODE_DIR/.env" -f "$NODE_DIR/docker-compose.yml" "$@"
   }
   compose pull paritr-node
+  # redb permits only one process to open a database, including during checks.
+  compose stop paritr-node
   if ! compose run --rm --no-deps --entrypoint /bin/sh paritr-node -c 'test -f /var/lib/paritr/config.json'; then
     local init_args=(run --rm --no-deps paritr-node init --public-bind "0.0.0.0:5050" --admin-bind "127.0.0.1:5051" --management-bind "0.0.0.0:5051" --mining-threads "$CORES" --mining-intensity "$INTENSITY" --randomx-mode "$MODE")
     [[ -z "$ADDRESS" ]] || init_args+=(--miner-address "$ADDRESS" --enable-mining)

@@ -121,6 +121,15 @@ cleanup() { rm -rf -- "$TMP"; }
 trap cleanup EXIT
 
 echo "Installing Paritr $NODE_VERSION / Protocol $PROTOCOL_VERSION for $TARGET"
+# Stop the existing supervised process before replacing its executable/opening
+# its redb database. A failed upgrade leaves it stopped for explicit recovery.
+if [[ "$OS" == Linux ]] && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$SERVICE_NAME.service"; then
+  as_root systemctl stop "$SERVICE_NAME.service"
+elif [[ "$OS" == Darwin ]] && launchctl print "gui/$(id -u)/de.oe-net.paritr-node" >/dev/null 2>&1; then
+  launchctl bootout "gui/$(id -u)" "$INSTALL_HOME/Library/LaunchAgents/de.oe-net.paritr-node.plist"
+elif [[ "$OS" == FreeBSD ]] && service paritr_node status >/dev/null 2>&1; then
+  as_root service paritr_node stop
+fi
 if [[ -f "$SCRIPT_DIR/Cargo.toml" && -d "$SCRIPT_DIR/src" ]]; then
   for tool in cargo cmake git; do command -v "$tool" >/dev/null 2>&1 || { echo "$tool is required for a source install" >&2; exit 1; }; done
   (cd "$SCRIPT_DIR" && cargo build --release --locked)

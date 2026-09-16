@@ -150,7 +150,11 @@ doctor() {
   else
     echo "Binary:     $($BIN --version)"
   fi
-  node_command check
+  if is_running; then
+    echo "Online status only: stop the node before a full redb database check."
+  else
+    node_command check
+  fi
   show_status_api
 }
 
@@ -175,7 +179,7 @@ case "$cmd" in
       esac
     fi
     ;;
-  check) need_node; node_command check ;;
+  check) need_node; if is_running; then echo "Stop the node before checking its redb database; use status or doctor while running." >&2; exit 1; fi; node_command check ;;
   doctor) doctor ;;
   update) need_node; update_installation ;;
   backup) need_node; backup_installation ;;

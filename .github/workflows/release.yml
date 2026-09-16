@@ -19,6 +19,7 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: 'cargo test --lib --locked consensus::'
+      - run: cargo test --locked --test protocol_vectors
 
   unix-bundles:
     strategy:
@@ -197,7 +198,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           cat >artifacts/release.env <<EOF
           PARITR_RELEASE_VERSION=$version
-          PARITR_PROTOCOL_VERSION=9
+          PARITR_PROTOCOL_VERSION=10
           PARITR_IMAGE_REF=$IMAGE@$DIGEST
           EOF
           git archive --format=tar.gz --prefix="paritr-node-$version-source/" -o "artifacts/paritr-node-$version-source.tar.gz" HEAD

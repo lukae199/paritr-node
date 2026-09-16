@@ -7,7 +7,7 @@
     "integer_endianness": "little",
     "variable_length_prefix": "u32 little-endian",
     "block_header_bytes": 160,
-    "p2p_magic_ascii": "PRT9",
+    "p2p_magic_ascii": "PR10",
     "address_version": 55
   },
   "randomx_v1_self_test": {
@@ -19,15 +19,15 @@
   },
   "genesis": {
     "timestamp": 1788984000,
-    "message_utf8": "Paritr Mainnet Protocol 10 - launch-anchored ASERT - 4.1.0-rc.1",
+    "message_utf8": "Paritr Mainnet Protocol 10 - 4.1.0-rc.1",
     "bits_decimal": 520355839,
     "bits_hex": "1f03ffff",
     "nonce": 0,
-    "transactions_root": "17d31519e57002d114c4e8e881597d3606735a65d469956ab8d87715e3c44828",
-    "state_root": "e55ef31e65f0e301c8346f844a1bd748c395e23147881cec7a87173e147e10e9",
-    "workshare_root": "e0622ca26dc9ce82101cd2dd43c17b21adea8108a92e27b0ccc78bf87b3148c0",
-    "block_id": "278203eff36845e9e20fe7b70a10fd8c0bdb240345928e511168ff0b6f076936",
-    "consensus_base64": "AwAJAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAX0xUZ5XAC0RTE6OiBWX02BnNaZdRplWq42HcV48RIKOVe8x5l8OMByDRvhEob10jDleIxR4gc7HqHFz4UfhDp4GIsom3JzoIQHNLdQ8F7Ia3qgQipLiewzMeL+HsxSMDAuqFqAAAAAP//Ax8AAAAAAAAAAAAAAAAACgAAAAEAAAAAAAAAAAA="
+    "transactions_root": "1b4eb2a056eee04c1b4198a838b4ddfc93068d8f6b00ebfc80e816b94b7ba588",
+    "state_root": "cb438d28ab82707089d0d2dd95c4533a41219cf0d5556ddd30a629b4cfefff4f",
+    "workshare_root": "19001f2eea0aaf1c2e9ca64a05660ae1ddecb24ded4b1a0688570e2da0ec61d4",
+    "block_id": "979eaa36eae4041b0c49281f64ed16bd963a646d9ee4807965c46f252240d216",
+    "consensus_base64": "BAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAbTrKgVu7gTBtBmKg4tN38kwaNj2sA6/yA6Ba5S3uliMtDjSirgnBwidDS3ZXEUzpBIZzw1VVt3TCmKbTP7/9PGQAfLuoKrxwunKZKBWYK4d3ssk3tSxoGiFcOLaDsYdTAuqFqAAAAAP//Ax8AAAAAAAAAAAAAAAAACgAAAAEAAAAAAAAAAAA="
   },
   "limits": {
     "max_block_bytes": 8388608,
@@ -51,8 +51,9 @@
   },
   "timing": {
     "target_block_seconds": 64,
-    "asert_half_life_seconds": 7200,
-    "asert_anchor_height": 1,
+    "daa": "weighted-window-16",
+    "daa_window_blocks": 16,
+    "first_solve_interval": "height_1_to_height_2",
     "initial_displayed_difficulty": 64,
     "median_time_span": 11,
     "maximum_future_seconds": 300,

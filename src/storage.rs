@@ -83,12 +83,18 @@ impl Storage {
         let blocks_table = read_txn.open_table(TABLE_BLOCKS)?;
         let mut blocks = Vec::new();
         for item in active.iter()? {
-            let (_height, hash) = item?;
+            let (height, hash) = item?;
             let block_data = blocks_table
                 .get(hash.value())?
                 .ok_or_else(|| anyhow::anyhow!("missing block data for active hash"))?;
             let block = Block::consensus_decode(block_data.value())
                 .context("invalid stored block encoding")?;
+            if height.value() != u64::try_from(blocks.len())?
+                || block.header.height != height.value()
+                || block.id().as_bytes().as_slice() != hash.value()
+            {
+                bail!("active chain height/hash does not match stored block");
+            }
             blocks.push(block);
         }
         Ok(blocks)
@@ -136,6 +142,17 @@ impl Storage {
                 active.insert(block.header.height, block.id().as_bytes().as_slice())?;
             }
 
+            // A shorter replacement chain must not retain snapshots of its old future.
+            let obsolete: Vec<u64> = snapshots
+                .iter()?
+                .map(|entry| entry.map(|(height, _)| height.value()))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .filter(|height| *height > chain.height())
+                .collect();
+            for height in obsolete {
+                snapshots.remove(height)?;
+            }
             let snapshot = chain.state().consensus_encode();
             snapshots.insert(chain.height(), snapshot.as_slice())?;
 

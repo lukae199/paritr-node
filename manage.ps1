@@ -148,7 +148,8 @@ function Invoke-Doctor {
         Invoke-Compose @('config','--quiet')
         Invoke-Compose @('ps')
     } else { & $Binary --version }
-    Invoke-Node @('check')
+    if (Test-NodeRunning) { Write-Host 'Online status only: stop the node before a full redb database check.' }
+    else { Invoke-Node @('check') }
     Show-StatusApi
 }
 
@@ -170,7 +171,7 @@ switch ($Command.ToLowerInvariant()) {
             Get-Content -LiteralPath $Log -Tail 200 -Wait
         }
     }
-    'check' { Assert-Installed; Invoke-Node @('check') }
+    'check' { Assert-Installed; if (Test-NodeRunning) { throw 'Stop the node before checking its redb database; use status or doctor while running.' }; Invoke-Node @('check') }
     'doctor' { Invoke-Doctor }
     'update' { Assert-Installed; Update-Installation }
     'backup' { Assert-Installed; Backup-Installation }

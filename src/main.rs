@@ -14,7 +14,7 @@ use paritr::{
 };
 
 #[derive(Parser, Debug)]
-#[command(name = "paritr-node", version = NODE_VERSION, about = "Paritr Protocol 9 full node")]
+#[command(name = "paritr-node", version = NODE_VERSION, about = "Paritr Protocol 10 full node")]
 struct Cli {
     #[arg(long, default_value = "config.json", global = true)]
     config: PathBuf,

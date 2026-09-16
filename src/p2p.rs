@@ -164,13 +164,13 @@ impl Hello {
     }
 
     pub fn node_id(&self) -> Hash32 {
-        domain_hash(b"PARITR-P9-NODE-ID-v1", &self.node_public_key)
+        domain_hash(b"PARITR-P10-NODE-ID-v1", &self.node_public_key)
     }
 
     fn signing_hash(&self) -> Hash32 {
         let mut clone = self.clone();
         clone.signature.clear();
-        domain_hash(b"PARITR-P9-HELLO-v1", &clone.consensus_encode())
+        domain_hash(b"PARITR-P10-HELLO-v1", &clone.consensus_encode())
     }
 }
 

@@ -283,7 +283,7 @@ impl Node {
         let secret_bytes = hex::decode(&config.node_private_key)?;
         let identity_secret = SecretKey::from_slice(&secret_bytes)?;
         let public = PublicKey::from_secret_key(&Secp256k1::new(), &identity_secret);
-        let identity_id = domain_hash(b"PARITR-P9-NODE-ID-v1", &public.serialize());
+        let identity_id = domain_hash(b"PARITR-P10-NODE-ID-v1", &public.serialize());
         let (events, _) = broadcast::channel(2_048);
         let mut pool = WorksharePool::default();
         pool.reset(chain.tip().id());

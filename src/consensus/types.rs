@@ -41,11 +41,11 @@ impl Transaction {
     }
 
     pub fn signature_hash(&self) -> Hash32 {
-        domain_hash(b"PARITR-P9-TX-SIGN-v1", &self.signing_bytes())
+        domain_hash(b"PARITR-P10-TX-SIGN-v1", &self.signing_bytes())
     }
 
     pub fn id(&self) -> Hash32 {
-        domain_hash(b"PARITR-P9-TXID-v1", &self.consensus_encode())
+        domain_hash(b"PARITR-P10-TXID-v1", &self.consensus_encode())
     }
 }
 
@@ -97,7 +97,7 @@ impl RewardClaim {
     pub const VERSION: u16 = 1;
 
     pub fn id(&self) -> Hash32 {
-        domain_hash(b"PARITR-P9-REWARD-CLAIM-v1", &self.consensus_encode())
+        domain_hash(b"PARITR-P10-REWARD-CLAIM-v1", &self.consensus_encode())
     }
 }
 
@@ -189,7 +189,7 @@ impl BlockTemplate {
     pub const VERSION: u16 = 1;
 
     pub fn id(&self) -> Hash32 {
-        domain_hash(b"PARITR-P9-TEMPLATE-v1", &self.consensus_encode())
+        domain_hash(b"PARITR-P10-TEMPLATE-v1", &self.consensus_encode())
     }
 }
 
@@ -240,7 +240,7 @@ impl Workshare {
     pub const VERSION: u16 = 1;
 
     pub fn id(&self) -> Hash32 {
-        domain_hash(b"PARITR-P9-WORKSHARE-v1", &self.consensus_encode())
+        domain_hash(b"PARITR-P10-WORKSHARE-v1", &self.consensus_encode())
     }
 }
 
@@ -287,7 +287,7 @@ impl WorkshareWitness {
     }
 
     pub fn root(&self) -> Hash32 {
-        domain_hash(b"PARITR-P9-WORKSHARE-WITNESS-v1", &self.consensus_encode())
+        domain_hash(b"PARITR-P10-WORKSHARE-WITNESS-v1", &self.consensus_encode())
     }
 
     pub fn is_canonical(&self) -> bool {
@@ -435,7 +435,7 @@ impl ConsensusDecode for Block {
 
 pub fn merkle_root(leaves: &[Hash32]) -> Hash32 {
     if leaves.is_empty() {
-        return domain_hash(b"PARITR-P9-MERKLE-EMPTY-v1", &[]);
+        return domain_hash(b"PARITR-P10-MERKLE-EMPTY-v1", &[]);
     }
     let mut level = leaves.to_vec();
     while level.len() > 1 {
@@ -450,7 +450,7 @@ pub fn merkle_root(leaves: &[Hash32]) -> Hash32 {
                 let mut bytes = [0_u8; 64];
                 bytes[..32].copy_from_slice(pair[0].as_bytes());
                 bytes[32..].copy_from_slice(pair[1].as_bytes());
-                domain_hash(b"PARITR-P9-MERKLE-NODE-v1", &bytes)
+                domain_hash(b"PARITR-P10-MERKLE-NODE-v1", &bytes)
             })
             .collect();
     }

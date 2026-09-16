@@ -79,7 +79,7 @@ impl StateKey {
                 recipient.encode_to(&mut writer);
             }
         }
-        domain_hash(b"PARITR-P9-STATE-KEY-v1", &writer.into_inner())
+        domain_hash(b"PARITR-P10-STATE-KEY-v1", &writer.into_inner())
     }
 }
 
@@ -103,12 +103,12 @@ pub struct SparseMerkleTree {
 impl Default for SparseMerkleTree {
     fn default() -> Self {
         let mut empty = vec![Hash32::ZERO; 257];
-        empty[256] = domain_hash(b"PARITR-P9-SMT-EMPTY-LEAF-v1", &[]);
+        empty[256] = domain_hash(b"PARITR-P10-SMT-EMPTY-LEAF-v1", &[]);
         for depth in (0..256).rev() {
             let mut children = [0_u8; 64];
             children[..32].copy_from_slice(empty[depth + 1].as_bytes());
             children[32..].copy_from_slice(empty[depth + 1].as_bytes());
-            empty[depth] = domain_hash(b"PARITR-P9-SMT-NODE-v1", &children);
+            empty[depth] = domain_hash(b"PARITR-P10-SMT-NODE-v1", &children);
         }
         Self {
             values: BTreeMap::new(),
@@ -146,7 +146,7 @@ impl SparseMerkleTree {
                 self.values.insert(key, value);
                 self.nodes.insert(
                     leaf_index,
-                    domain_hash(b"PARITR-P9-SMT-LEAF-v1", &leaf_data),
+                    domain_hash(b"PARITR-P10-SMT-LEAF-v1", &leaf_data),
                 );
             }
             _ => {
@@ -170,7 +170,7 @@ impl SparseMerkleTree {
             let mut children = [0_u8; 64];
             children[..32].copy_from_slice(left.as_bytes());
             children[32..].copy_from_slice(right.as_bytes());
-            let hash = domain_hash(b"PARITR-P9-SMT-NODE-v1", &children);
+            let hash = domain_hash(b"PARITR-P10-SMT-NODE-v1", &children);
             let parent_index = NodeIndex {
                 depth: parent_depth,
                 prefix: prefix(key.0, parent_depth),

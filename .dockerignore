@@ -5,6 +5,7 @@ data
 config.json
 *.log
 *.sqlite*
+*.redb
 __pycache__
 dist
 release-assets

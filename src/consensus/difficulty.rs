@@ -42,13 +42,13 @@ pub fn bits_to_target(bits: u32) -> Option<U256> {
     (target_to_bits(target) == bits).then_some(target)
 }
 
-/// Responsive LWMA-16 algorithm: linearly weights recent solve times to eliminate
-/// Poisson oscillations while reacting quickly to hashrate changes.
+/// Weighted-window-16: linearly weights solve times and targets. Genesis waiting
+/// time is not a mined interval and must not lower launch difficulty.
 pub fn calculate_next_target(history: &[Block]) -> U256 {
-    if history.len() < 2 {
+    if history.len() < 3 {
         return initial_target();
     }
-    let window_size = (history.len() - 1).min(DAA_WINDOW);
+    let window_size = (history.len() - 2).min(DAA_WINDOW);
     let start_idx = history.len() - window_size;
     let slice = &history[start_idx - 1..];
 
@@ -73,8 +73,9 @@ pub fn calculate_next_target(history: &[Block]) -> U256 {
     let weighted_solve_time = (weighted_times + weight_sum / 2) / weight_sum;
     avg_target /= U512::from(weight_sum);
 
-    let min_allowed = TARGET_BLOCK_TIME / 2; // 32s (-50% target cap)
-    let max_allowed = TARGET_BLOCK_TIME + TARGET_BLOCK_TIME / 2; // 96s (+50% target cap)
+    // These caps are relative to the weighted average target, not the last block.
+    let min_allowed = TARGET_BLOCK_TIME / 2;
+    let max_allowed = TARGET_BLOCK_TIME + TARGET_BLOCK_TIME / 2;
     let clamped_time = weighted_solve_time.clamp(min_allowed, max_allowed);
 
     let next_target = (avg_target * U512::from(clamped_time)) / U512::from(TARGET_BLOCK_TIME);
@@ -122,6 +123,26 @@ fn u512_to_u256_clamped(value: U512, maximum: U256) -> U256 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn delayed_launch_is_ignored_and_real_solve_times_adjust_target() {
+        let genesis = Block::genesis();
+        let mut first = genesis.clone();
+        first.header.height = 1;
+        first.header.timestamp += 86_400;
+        let mut history = vec![genesis, first.clone()];
+        assert_eq!(calculate_next_target(&history), initial_target());
+        let mut second = first;
+        second.header.height = 2;
+        second.header.timestamp += TARGET_BLOCK_TIME;
+        history.push(second);
+        let baseline = bits_to_target(history[2].header.bits).unwrap();
+        assert_eq!(calculate_next_target(&history), baseline);
+        history[2].header.timestamp = history[1].header.timestamp + 1;
+        assert_eq!(calculate_next_target(&history), baseline / 2);
+        history[2].header.timestamp = history[1].header.timestamp + TARGET_BLOCK_TIME * 3;
+        assert_eq!(calculate_next_target(&history), baseline * 3 / 2);
+    }
 
     #[test]
     fn compact_targets_are_canonical() {
