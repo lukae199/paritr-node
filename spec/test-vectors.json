@@ -1,7 +1,7 @@
 {
-  "format": "paritr-protocol-9-test-vectors-v1",
+  "format": "paritr-protocol-10-test-vectors-v1",
   "chain_id": "paritr-mainnet",
-  "protocol_version": 9,
+  "protocol_version": 10,
   "header_version": 3,
   "codec": {
     "integer_endianness": "little",
