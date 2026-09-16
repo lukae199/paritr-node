@@ -2,7 +2,7 @@
   "format": "paritr-protocol-10-test-vectors-v1",
   "chain_id": "paritr-mainnet",
   "protocol_version": 10,
-  "header_version": 3,
+  "header_version": 4,
   "codec": {
     "integer_endianness": "little",
     "variable_length_prefix": "u32 little-endian",
