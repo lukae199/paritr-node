@@ -382,7 +382,8 @@ pub(crate) fn validate_workshares(
                 sum.checked_add(transaction.fee)
                     .ok_or(ConsensusError::MoneyRange)
             })?;
-        let allocation = reward_allocation_with_weights(template.height, share.miner, fees, &weights)?;
+        let allocation =
+            reward_allocation_with_weights(template.height, share.miner, fees, &weights)?;
         let claim = RewardClaim {
             version: RewardClaim::VERSION,
             height: template.height,

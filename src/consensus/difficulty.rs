@@ -1,8 +1,6 @@
 use primitive_types::{U256, U512};
 
-use super::{
-    initial_target, pow_limit, Block, TARGET_BLOCK_TIME, WORKSHARE_TARGET_MULTIPLIER,
-};
+use super::{initial_target, pow_limit, Block, TARGET_BLOCK_TIME, WORKSHARE_TARGET_MULTIPLIER};
 
 pub const DAA_WINDOW: usize = 16;
 

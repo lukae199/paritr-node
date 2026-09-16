@@ -30,7 +30,8 @@ pub const RANDOMX_SEED_LAG: u64 = 64;
 pub const RANDOMX_VERSION_LINE: &str = "1.2.3";
 pub const RANDOMX_BOOTSTRAP_SEED: &[u8] = b"Paritr-Protocol-10-RandomX-Bootstrap-v1";
 pub const GENESIS_TIMESTAMP: u64 = 1_788_984_000;
-pub const GENESIS_MESSAGE: &str = "Paritr Mainnet Protocol 10 - Responsive DAA & Redb Engine - 4.1.0-rc.1";
+pub const GENESIS_MESSAGE: &str =
+    "Paritr Mainnet Protocol 10 - Responsive DAA & Redb Engine - 4.1.0-rc.1";
 
 pub fn pow_limit() -> U256 {
     (U256::one() << 248) - U256::one()

@@ -62,8 +62,10 @@ impl Storage {
                 }
                 let protocol = meta.get("protocol")?;
                 let genesis = meta.get("genesis")?;
-                if protocol.as_ref().map(|v| v.value()) != Some(PROTOCOL_VERSION.to_le_bytes().as_slice())
-                    || genesis.as_ref().map(|v| v.value()) != Some(Block::genesis().id().as_bytes().as_slice())
+                if protocol.as_ref().map(|v| v.value())
+                    != Some(PROTOCOL_VERSION.to_le_bytes().as_slice())
+                    || genesis.as_ref().map(|v| v.value())
+                        != Some(Block::genesis().id().as_bytes().as_slice())
                 {
                     bail!("database protocol/genesis identity does not match this binary");
                 }
@@ -133,10 +135,7 @@ impl Storage {
             }
 
             for block in &chain.blocks()[start..] {
-                active.insert(
-                    block.header.height,
-                    block.id().as_bytes().as_slice(),
-                )?;
+                active.insert(block.header.height, block.id().as_bytes().as_slice())?;
             }
 
             let snapshot = chain.state().consensus_encode();

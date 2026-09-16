@@ -1,5 +1,5 @@
-use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 use crate::{
     codec::{CodecError, ConsensusDecode, ConsensusEncode, Reader, Writer},
@@ -372,7 +372,10 @@ impl Block {
                 protocol: PROTOCOL_VERSION,
                 height: 0,
                 previous_block: Hash32::ZERO,
-                transactions_root: domain_hash(b"PARITR-P10-GENESIS-v1", GENESIS_MESSAGE.as_bytes()),
+                transactions_root: domain_hash(
+                    b"PARITR-P10-GENESIS-v1",
+                    GENESIS_MESSAGE.as_bytes(),
+                ),
                 state_root: super::LedgerState::default().root(),
                 workshare_root: witness.root(),
                 timestamp: GENESIS_TIMESTAMP,

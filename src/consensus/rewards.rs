@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
-use primitive_types::{U256, U512};
 use crate::crypto::Address;
+use primitive_types::{U256, U512};
+use std::collections::BTreeMap;
 
 use super::{
     bits_to_target, block_subsidy, target_work, workshare_bits, Block, ConsensusError,
