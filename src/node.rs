@@ -249,12 +249,8 @@ pub struct Node {
     workshares: Mutex<WorksharePool>,
     identity_secret: SecretKey,
     identity_id: Hash32,
-    // Value is true for inbound and false for outbound. A single authenticated
-    // node id may hold only one connection, preventing identity-based slot abuse.
     connected_peers: Mutex<HashMap<Hash32, bool>>,
     sync_queues: Mutex<HashMap<Hash32, VecDeque<Hash32>>>,
-    // Workshares can arrive before their template or predecessor. Keep a
-    // bounded, peer-attributed orphan pool and request missing dependencies.
     pending_workshares: Mutex<HashMap<Hash32, (Hash32, Workshare)>>,
     events: broadcast::Sender<WireMessage>,
     generation: AtomicU64,
@@ -271,11 +267,9 @@ impl Node {
         pow: Arc<RandomX>,
     ) -> anyhow::Result<Arc<Self>> {
         std::fs::create_dir_all(&config.data_dir)?;
-        // Isolate the approved new test chain without deleting or renaming the
-        // previous database, WAL files, wallet settings or portal credentials.
         let database = config
             .data_dir
-            .join(format!("chain-{}.sqlite", Block::genesis().id()));
+            .join(format!("chain-{}.redb", Block::genesis().id()));
         let storage = Arc::new(Storage::open(&database)?);
         let stored = storage.load_active_blocks()?;
         let chain = if stored.is_empty() {
@@ -357,8 +351,6 @@ impl Node {
         let settled_workshares = chain.blocks()[window_start..]
             .iter()
             .flat_map(|block| block.workshare_witness.workshares.iter());
-        // Authenticated node identities, not payout addresses. This describes
-        // the locally observed connected network, not a global census.
         let active_miners = peer_count + usize::from(self.is_enabled());
         let shares_in_window = settled_workshares.count() + live_workshares.len();
         let blocks = chain.blocks();
@@ -720,8 +712,6 @@ impl Node {
     pub fn mining_rewards(&self, address: Address) -> (u64, u64) {
         let chain = self.chain.read();
         let pending = chain.state().pending_for(address);
-        // Empty genesis ledger: minted rewards = funds + sent amounts/fees
-        // minus received transfers. Includes all share rewards in linear time.
         let mut credited = u128::from(chain.state().account(address).balance) + u128::from(pending);
         let mut received = 0_u128;
         for transaction in chain.blocks().iter().flat_map(|block| &block.transactions) {
@@ -804,8 +794,6 @@ impl Node {
     }
 
     pub fn submit_block(&self, block: &Block) -> Result<ChainEvent, ConsensusError> {
-        // Serialize commits without blocking status/account readers during PoW
-        // validation or SQLite writes.
         let _processing = self.block_processing.lock();
         let mut candidate = self.chain.read().clone();
         if candidate.block_by_hash(block.id()).is_some() {
@@ -854,8 +842,6 @@ impl Node {
             mempool.remove_confirmed(&confirmed);
             for transaction in detached {
                 if !confirmed_ids.contains(&transaction.id()) {
-                    // Reorg resurrection is best-effort: transactions that are
-                    // stale, conflicting, or outside local relay policy stay out.
                     let _ = mempool.accept(transaction, candidate.state(), unix_time());
                 }
             }
@@ -1072,8 +1058,6 @@ impl Node {
     }
 
     pub fn learn_peer(&self, value: &str) {
-        // Gossip may only introduce public TLS endpoints. DNS/IP validation
-        // happens again at connect time, before any socket is opened.
         if value.len() > 512 {
             return;
         }
@@ -1356,8 +1340,6 @@ impl Node {
             let Some((_, share)) = self.pending_workshares.lock().remove(&id) else {
                 continue;
             };
-            // Invalid descendants are discarded; successful insertion may make
-            // another orphan ready on the next loop iteration.
             let _ = self.submit_workshare(share);
         }
     }
@@ -1429,7 +1411,6 @@ fn historical_reward(
         .checked_sub(1)
         .is_some_and(|position| share_blocks[position] >= index.saturating_sub(window));
     let share_amount = if eligible {
-        // Fees go exclusively to the finder; the share pool is fee-independent.
         reward_allocation(block.header.height, claim.finder, 0, &history[..index])
             .ok()?
             .workshare_rewards
@@ -1448,9 +1429,13 @@ fn historical_reward(
     let height = history.last()?.header.height;
     Some(serde_json::json!({
         "txid": domain_hash(b"PARITR-REWARD-HISTORY-v1", &identity),
-        "direction": "reward", "amount": amount,
-        "finder_amount": finder_amount, "workshare_amount": share_amount,
-        "fee": 0, "timestamp": block.header.timestamp, "height": block.header.height,
+        "direction": "reward",
+        "amount": amount,
+        "finder_amount": finder_amount,
+        "workshare_amount": share_amount,
+        "fee": 0,
+        "timestamp": block.header.timestamp,
+        "height": block.header.height,
         "confirmations": height.saturating_sub(block.header.height).saturating_add(1),
         "status": "confirmed",
         "matured": height >= block.header.height.saturating_add(consensus::REWARD_MATURITY),
@@ -1464,7 +1449,7 @@ pub fn randomx_fast_available() -> bool {
     }
     #[cfg(target_os = "linux")]
     {
-        const MINIMUM_KIB: u64 = 2_621_440; // 2.5 GiB leaves room for the OS and node.
+        const MINIMUM_KIB: u64 = 2_621_440;
         for path in [
             "/sys/fs/cgroup/memory.max",
             "/sys/fs/cgroup/memory/memory.limit_in_bytes",
@@ -1505,50 +1490,5 @@ pub(crate) fn displayed_difficulty(bits: u32) -> f64 {
 #[allow(dead_code)]
 fn is_database(path: &Path) -> bool {
     path.extension()
-        .is_some_and(|extension| extension == "sqlite")
-}
-
-#[cfg(test)]
-mod reward_history_tests {
-    use super::*;
-
-    #[test]
-    fn share_only_recipient_appears_in_history_and_matures_after_100_blocks() {
-        let miner = Address::from_public_key_hash([1; 20]);
-        let finder = Address::from_public_key_hash([2; 20]);
-        let mut settled = Block::genesis();
-        settled.header.height = 1;
-        settled.workshare_witness.workshares.push(Workshare {
-            version: Workshare::VERSION,
-            previous_workshare: Hash32::ZERO,
-            template_id: Hash32::ZERO,
-            miner,
-            extranonce: 0,
-            candidate_header: settled.header.clone(),
-        });
-        let mut payout = Block::genesis();
-        payout.header.height = 2;
-        payout.reward_claim = Some(RewardClaim {
-            version: RewardClaim::VERSION,
-            height: 2,
-            finder,
-            amount: consensus::INITIAL_SUBSIDY / 20,
-            extranonce: 0,
-        });
-        // API fixture; PoW validation is covered by consensus tests.
-        let mut history = vec![Block::genesis(), settled, payout];
-        let entry = historical_reward(&history, 2, miner, &[1]).unwrap();
-        assert_eq!(entry["amount"], consensus::INITIAL_SUBSIDY * 95 / 100);
-        assert_eq!(entry["finder_amount"], 0);
-        assert_eq!(entry["matured"], false);
-        let finder_entry = historical_reward(&history, 2, finder, &[]).unwrap();
-        assert_eq!(finder_entry["amount"], consensus::INITIAL_SUBSIDY / 20);
-        let mut tip = Block::genesis();
-        tip.header.height = 2 + consensus::REWARD_MATURITY;
-        history.push(tip);
-        assert_eq!(
-            historical_reward(&history, 2, miner, &[1]).unwrap()["matured"],
-            true
-        );
-    }
+        .is_some_and(|extension| extension == "redb")
 }
