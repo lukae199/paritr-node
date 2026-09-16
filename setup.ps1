@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Unified Paritr Protocol 9 setup for Windows 10/11 and Windows Server.
+  Unified Paritr Protocol 10 setup for Windows 10/11 and Windows Server.
 #>
 [CmdletBinding()]
 param(
@@ -23,8 +23,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$NodeVersion = '4.0.1-rc.5'
-$ProtocolVersion = 9
+$NodeVersion = '4.1.0-rc.1'
+$ProtocolVersion = 10
 $PortWasSpecified = $PSBoundParameters.ContainsKey('Port')
 $Source = $Source.TrimEnd('/')
 $SetupPath = $MyInvocation.MyCommand.Path

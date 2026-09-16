@@ -8,11 +8,13 @@ pub(crate) mod validation;
 
 pub use chain::{Chain, ChainEvent, ChainSnapshot};
 pub use difficulty::{
-    bits_to_target, next_bits, required_bits, required_target, target_to_bits, target_work,
-    workshare_bits,
+    bits_to_target, calculate_next_target, next_bits, required_bits, required_target,
+    target_to_bits, target_work, workshare_bits,
 };
 pub use params::*;
-pub use rewards::{reward_allocation, RewardAllocation};
+pub use rewards::{
+    compute_window_weights, reward_allocation, reward_allocation_with_weights, RewardAllocation,
+};
 pub use state::{Account, LedgerState, PendingReward, SparseMerkleTree, StateKey};
 pub use types::{
     merkle_root, Block, BlockHeader, BlockTemplate, RewardClaim, Transaction, Workshare,

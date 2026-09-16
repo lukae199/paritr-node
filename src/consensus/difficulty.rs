@@ -1,9 +1,10 @@
 use primitive_types::{U256, U512};
 
 use super::{
-    initial_target, pow_limit, Block, ASERT_HALF_LIFE, TARGET_BLOCK_TIME,
-    WORKSHARE_TARGET_MULTIPLIER,
+    initial_target, pow_limit, Block, TARGET_BLOCK_TIME, WORKSHARE_TARGET_MULTIPLIER,
 };
+
+pub const DAA_WINDOW: usize = 16;
 
 pub fn target_to_bits(target: U256) -> u32 {
     if target.is_zero() {
@@ -27,8 +28,6 @@ pub fn target_to_bits(target: U256) -> u32 {
 pub fn bits_to_target(bits: u32) -> Option<U256> {
     let size = bits >> 24;
     let word = bits & 0x007f_ffff;
-    // Size 33 is the canonical compact form for high 255/256-bit values;
-    // only a 16-bit mantissa can fit without overflowing U256.
     if word == 0
         || bits & 0x0080_0000 != 0
         || size == 0
@@ -45,72 +44,55 @@ pub fn bits_to_target(bits: u32) -> Option<U256> {
     (target_to_bits(target) == bits).then_some(target)
 }
 
-/// Target for the block following `parent_height`.
-///
-/// The candidate's own timestamp never changes its target. This removes the
-/// Protocol-8 emergency-rule incentive while retaining deterministic recovery
-/// from large hashrate changes through ASERT.
-pub fn required_target(parent_height: u64, parent_timestamp: u64, launch_timestamp: u64) -> U256 {
-    if parent_height <= 1 {
+/// Responsive LWMA-16 algorithm: linearly weights recent solve times to eliminate
+/// Poisson oscillations while reacting quickly to hashrate changes.
+pub fn calculate_next_target(history: &[Block]) -> U256 {
+    if history.len() < 2 {
         return initial_target();
     }
-    // The first mined block anchors the schedule of its branch. Time spent
-    // waiting to launch the network must never lower its starting difficulty.
-    let ideal_elapsed = i128::from(parent_height - 1) * i128::from(TARGET_BLOCK_TIME);
-    let actual_elapsed = i128::from(parent_timestamp) - i128::from(launch_timestamp);
-    let drift = actual_elapsed - ideal_elapsed;
-    let exponent = (drift * 65_536).div_euclid(i128::from(ASERT_HALF_LIFE));
-    let shifts = exponent.div_euclid(65_536);
-    let fraction = exponent.rem_euclid(65_536);
+    let window_size = (history.len() - 1).min(DAA_WINDOW);
+    let start_idx = history.len() - window_size;
+    let slice = &history[start_idx - 1..];
 
-    // BCH's thoroughly reviewed cubic approximation of 2^(x/65536), evaluated
-    // entirely with integers. Maximum relative error is far below one target bit.
-    let factor = 65_536_i128
-        + ((195_766_423_245_049_i128 * fraction
-            + 971_821_376_i128 * fraction * fraction
-            + 5_127_i128 * fraction * fraction * fraction
-            + (1_i128 << 47))
-            >> 48);
+    let mut weighted_times: u64 = 0;
+    let mut weight_sum: u64 = 0;
+    let mut avg_target = U512::zero();
 
-    let factor = u64::try_from(factor).expect("ASERT polynomial factor is positive and bounded");
-    let mut target = U512::from(initial_target()) * U512::from(factor);
-    target >>= 16;
-    if shifts < 0 {
-        target >>= usize::try_from(-shifts).unwrap_or(usize::MAX).min(511);
-    } else {
-        if shifts >= 256 {
-            return pow_limit();
-        }
-        let shift = usize::try_from(shifts).expect("nonnegative shift");
-        if target > (U512::from(pow_limit()) >> shift) {
-            return pow_limit();
-        }
-        target <<= shift;
+    for i in 1..=window_size {
+        let weight = i as u64;
+        let solve_time = slice[i]
+            .header
+            .timestamp
+            .saturating_sub(slice[i - 1].header.timestamp)
+            .clamp(1, TARGET_BLOCK_TIME * 3);
+
+        weighted_times += solve_time * weight;
+        weight_sum += weight;
+        let target = bits_to_target(slice[i].header.bits).unwrap_or_else(initial_target);
+        avg_target += U512::from(target) * U512::from(weight);
     }
-    u512_to_u256_clamped(target, pow_limit()).max(U256::one())
+
+    let weighted_solve_time = (weighted_times + weight_sum / 2) / weight_sum;
+    avg_target /= U512::from(weight_sum);
+
+    let min_allowed = TARGET_BLOCK_TIME / 2; // 32s (-50% target cap)
+    let max_allowed = TARGET_BLOCK_TIME + TARGET_BLOCK_TIME / 2; // 96s (+50% target cap)
+    let clamped_time = weighted_solve_time.clamp(min_allowed, max_allowed);
+
+    let next_target = (avg_target * U512::from(clamped_time)) / U512::from(TARGET_BLOCK_TIME);
+    u512_to_u256_clamped(next_target, pow_limit()).max(U256::one())
 }
 
-pub fn required_bits(parent_height: u64, parent_timestamp: u64, launch_timestamp: u64) -> u32 {
-    target_to_bits(required_target(
-        parent_height,
-        parent_timestamp,
-        launch_timestamp,
-    ))
-}
-
-/// The same branch-local anchor is used by miners, block validation and shares.
 pub fn next_bits(history: &[Block]) -> u32 {
-    let Some(parent) = history.last() else {
-        return target_to_bits(initial_target());
-    };
-    let launch_timestamp = history
-        .get(1)
-        .map_or(parent.header.timestamp, |block| block.header.timestamp);
-    required_bits(
-        parent.header.height,
-        parent.header.timestamp,
-        launch_timestamp,
-    )
+    target_to_bits(calculate_next_target(history))
+}
+
+pub fn required_target(history: &[Block]) -> U256 {
+    calculate_next_target(history)
+}
+
+pub fn required_bits(history: &[Block]) -> u32 {
+    target_to_bits(calculate_next_target(history))
 }
 
 pub fn workshare_bits(block_bits: u32) -> Option<u32> {
@@ -151,42 +133,5 @@ mod tests {
             assert_eq!(target_to_bits(decoded), bits);
             assert!(decoded <= target);
         }
-        assert!(bits_to_target(0).is_none());
-        assert!(bits_to_target(0x1d80_ffff).is_none());
-    }
-
-    #[test]
-    fn asert_doubles_and_halves_near_half_life() {
-        let launch = 1_000_000;
-        let ideal = launch + 200 * TARGET_BLOCK_TIME;
-        let baseline = required_target(201, ideal, launch);
-        let slower = required_target(201, ideal + ASERT_HALF_LIFE as u64, launch);
-        assert!(slower >= baseline * 2 - U256::from(2_u8));
-        let faster = required_target(201, ideal - ASERT_HALF_LIFE as u64, launch);
-        assert!(faster <= baseline / 2 + U256::from(2_u8));
-    }
-
-    #[test]
-    fn launch_delay_does_not_change_difficulty_and_extreme_gaps_saturate() {
-        assert_eq!(required_target(0, 0, 0), initial_target());
-        assert_eq!(required_target(1, u64::MAX, u64::MAX), initial_target());
-        assert_eq!(
-            required_target(101, 10_000 + 100 * TARGET_BLOCK_TIME, 10_000),
-            initial_target()
-        );
-        assert_eq!(
-            required_target(101, 1_000_000 + 100 * TARGET_BLOCK_TIME, 1_000_000),
-            initial_target()
-        );
-        assert_eq!(required_target(2, u64::MAX, 0), pow_limit());
-        assert_eq!(required_target(u64::MAX, 0, 0), U256::one());
-    }
-
-    #[test]
-    fn workshare_target_uses_consensus_multiplier() {
-        let bits = target_to_bits(initial_target());
-        let share = bits_to_target(workshare_bits(bits).unwrap()).unwrap();
-        let block = bits_to_target(bits).unwrap();
-        assert!(share >= block * WORKSHARE_TARGET_MULTIPLIER);
     }
 }

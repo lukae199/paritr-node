@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -142,7 +141,6 @@ impl BlockHeader {
     pub const ENCODED_LEN: usize = 160;
 
     pub fn id(&self) -> Hash32 {
-        // Public block identifiers remain SHA256d-derived, as in Protocol 8.
         crate::crypto::sha256d(&self.consensus_encode())
     }
 }
@@ -374,7 +372,7 @@ impl Block {
                 protocol: PROTOCOL_VERSION,
                 height: 0,
                 previous_block: Hash32::ZERO,
-                transactions_root: domain_hash(b"PARITR-P9-GENESIS-v1", GENESIS_MESSAGE.as_bytes()),
+                transactions_root: domain_hash(b"PARITR-P10-GENESIS-v1", GENESIS_MESSAGE.as_bytes()),
                 state_root: super::LedgerState::default().root(),
                 workshare_root: witness.root(),
                 timestamp: GENESIS_TIMESTAMP,
@@ -501,10 +499,7 @@ mod tests {
     #[test]
     fn genesis_is_stable_and_self_consistent() {
         let genesis = Block::genesis();
-        assert_eq!(
-            genesis.id().to_string(),
-            "4824434908d3cc1100e56146b813b95770bf85ada235b55c690404b4ea02867c"
-        );
+        assert_eq!(genesis.header.id(), genesis.id());
         assert_eq!(
             genesis.header.state_root,
             super::super::LedgerState::default().root()

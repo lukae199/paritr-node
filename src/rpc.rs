@@ -85,7 +85,7 @@ struct ChainParameters {
     header_version: u16,
     target_block_time: u64,
     daa: &'static str,
-    asert_half_life: i64,
+    daa_window: usize,
     initial_subsidy: u64,
     minimum_subsidy: u64,
     halving_interval: u64,
@@ -191,7 +191,7 @@ pub fn public_router(node: Arc<Node>) -> Router {
         .route("/workshare", post(submit_workshare))
         .route("/workshare/template", post(submit_template))
         .route("/mining/template", get(mining_template))
-        .route("/p2p/v9", get(p2p_socket))
+        .route("/p2p/v10", get(p2p_socket))
         .layer(RequestBodyLimitLayer::new(consensus::MAX_BLOCK_BYTES))
         .layer(
             CorsLayer::new()
@@ -202,9 +202,6 @@ pub fn public_router(node: Arc<Node>) -> Router {
         .layer(TraceLayer::new_for_http())
         .with_state(Arc::clone(&node));
 
-    // Directly registered HTTPS nodes use the same public base URL for the
-    // secret-protected admin calls. The dedicated 5051 listener remains the
-    // loopback path used by the outbound portal agent.
     public.merge(admin_router(node))
 }
 
@@ -304,7 +301,6 @@ pub async fn serve(node: Arc<Node>) -> anyhow::Result<()> {
         )?;
         return Ok(());
     }
-    // Keep explicitly configured legacy installations with a separate port working.
     let admin_listener = tokio::net::TcpListener::bind(admin_address).await?;
     tokio::try_join!(
         axum::serve(public_listener, public_router(Arc::clone(&node))),
@@ -350,8 +346,8 @@ async fn chain_params() -> Json<ChainParameters> {
         protocol_version: consensus::PROTOCOL_VERSION,
         header_version: consensus::HEADER_VERSION,
         target_block_time: consensus::TARGET_BLOCK_TIME,
-        daa: "ASERT integer fixed-point",
-        asert_half_life: consensus::ASERT_HALF_LIFE,
+        daa: "LWMA-16 Responsive Fixed-Point",
+        daa_window: 16,
         initial_subsidy: consensus::INITIAL_SUBSIDY,
         minimum_subsidy: consensus::MIN_SUBSIDY,
         halving_interval: consensus::HALVING_INTERVAL,
@@ -415,7 +411,7 @@ async fn p2p_info(State(node): State<Arc<Node>>) -> Json<serde_json::Value> {
         "chain_work": snapshot.cumulative_work,
         "hashrate": status.hashrate,
         "peer_count": status.peer_count,
-        "p2p_wire_path": "/p2p/v9",
+        "p2p_wire_path": "/p2p/v10",
         "node_url": node.mining_config().public_url,
     }))
 }
@@ -494,7 +490,7 @@ async fn raw_block(
 ) -> Result<Response, ApiError> {
     let bytes = resolve_block(&node, &selector)?.consensus_encode();
     Ok((
-        [(header::CONTENT_TYPE, "application/x-paritr-block-v9")],
+        [(header::CONTENT_TYPE, "application/x-paritr-block-v10")],
         bytes,
     )
         .into_response())
@@ -689,10 +685,10 @@ async fn require_admin(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
     let expected = domain_hash(
-        b"PARITR-P9-ADMIN-AUTH-v1",
+        b"PARITR-P10-ADMIN-AUTH-v1",
         node.config.admin_secret.as_bytes(),
     );
-    let supplied = token.map(|value| domain_hash(b"PARITR-P9-ADMIN-AUTH-v1", value.as_bytes()));
+    let supplied = token.map(|value| domain_hash(b"PARITR-P10-ADMIN-AUTH-v1", value.as_bytes()));
     if supplied != Some(expected) {
         return Err(StatusCode::UNAUTHORIZED);
     }
@@ -1112,8 +1108,6 @@ fn set_node_enabled(node: &Node, enabled: bool) -> Result<(), ApiError> {
 
 fn schedule_restart() {
     tokio::spawn(async {
-        // Leave enough time for the HTTP response and an outbound portal result
-        // acknowledgement before the service supervisor restarts the process.
         tokio::time::sleep(Duration::from_secs(3)).await;
         std::process::exit(75);
     });

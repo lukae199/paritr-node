@@ -353,42 +353,47 @@ impl Node {
             .flat_map(|block| block.workshare_witness.workshares.iter());
         let active_miners = peer_count + usize::from(self.is_enabled());
         let shares_in_window = settled_workshares.count() + live_workshares.len();
+
         let blocks = chain.blocks();
-        let recent = &blocks[blocks.len().saturating_sub(31)..];
-        let avg_block_time = if recent.len() > 1 {
-            recent
-                .last()
-                .expect("nonempty")
-                .header
-                .timestamp
-                .saturating_sub(recent.first().expect("nonempty").header.timestamp)
-                as f64
-                / (recent.len() - 1) as f64
+        let mined_blocks: Vec<_> = blocks.iter().skip(1).rev().take(16).cloned().collect();
+        let avg_block_time = if mined_blocks.len() > 1 {
+            let newest = mined_blocks.first().expect("nonempty").header.timestamp;
+            let oldest = mined_blocks.last().expect("nonempty").header.timestamp;
+            let span = newest.saturating_sub(oldest);
+            (span as f64) / ((mined_blocks.len() - 1) as f64).max(1.0)
         } else {
             consensus::TARGET_BLOCK_TIME as f64
         };
-        let estimated_hashrate = if recent.len() > 1 {
-            let span = recent
-                .last()
-                .expect("nonempty")
-                .header
-                .timestamp
-                .saturating_sub(recent.first().expect("nonempty").header.timestamp);
+
+        let estimated_hashrate = if mined_blocks.len() > 1 {
+            let newest = mined_blocks.first().expect("nonempty").header.timestamp;
+            let oldest = mined_blocks.last().expect("nonempty").header.timestamp;
+            let span = newest.saturating_sub(oldest);
             if span == 0 {
                 0.0
             } else {
-                recent
+                mined_blocks
                     .iter()
-                    .skip(1)
-                    .filter_map(|block| consensus::bits_to_target(block.header.bits))
+                    .filter_map(|b| consensus::bits_to_target(b.header.bits))
                     .map(consensus::target_work)
                     .map(work_as_f64)
                     .sum::<f64>()
-                    / span as f64
+                    / (span as f64)
             }
         } else {
             0.0
         };
+
+        let implied_hashrate = consensus::bits_to_target(tip.header.bits)
+            .map(|target| work_as_f64(consensus::target_work(target)) / consensus::TARGET_BLOCK_TIME as f64)
+            .unwrap_or(0.0);
+
+        let network_hashrate = if estimated_hashrate > 0.0 {
+            estimated_hashrate.max(hashrate)
+        } else {
+            implied_hashrate.max(hashrate)
+        };
+
         let emitted_supply = scheduled_supply(chain.height());
         let circulating_supply = chain
             .state()
@@ -1047,7 +1052,7 @@ impl Node {
             .mining_config()
             .public_url
             .as_deref()
-            .map(|url| format!("{}/p2p/v9", url.trim_end_matches('/')))
+            .map(|url| format!("{}/p2p/v10", url.trim_end_matches('/')))
             .unwrap_or_default();
         Hello::signed(
             &self.identity_secret,

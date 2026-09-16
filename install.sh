@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Paritr Protocol 9 installer for Linux, macOS and FreeBSD.
+# Paritr Protocol 10 installer for Linux, macOS and FreeBSD.
 set -Eeuo pipefail
 
-NODE_VERSION="4.0.1-rc.5"
-PROTOCOL_VERSION="9"
+NODE_VERSION="4.1.0-rc.1"
+PROTOCOL_VERSION="10"
 CHAIN_ID="paritr-mainnet"
 RANDOMX_TAG="v1.2.3"
 RANDOMX_COMMIT="12f2c2ffe2108d6cf54c391fee33c8bc3646cdab"
@@ -181,7 +181,7 @@ if [[ "$OS" == Linux ]] && command -v systemctl >/dev/null 2>&1; then
   UNIT="$TMP/$SERVICE_NAME.service"
   cat >"$UNIT" <<EOF
 [Unit]
-Description=Paritr Protocol 9 full node
+Description=Paritr Protocol 10 full node
 After=network-online.target
 Wants=network-online.target
 

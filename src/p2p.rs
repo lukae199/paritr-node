@@ -19,10 +19,11 @@ use crate::{
     node::Node,
 };
 
-pub const WIRE_MAGIC: [u8; 4] = *b"PRT9";
+pub const WIRE_MAGIC: [u8; 4] = *b"PR10";
 pub const MAX_WIRE_FRAME: usize = MAX_BLOCK_BYTES + 64 * 1024;
 pub const MAX_PEER_URLS: usize = 256;
 pub const MAX_HEADERS: usize = 2_000;
+
 const RATE_WINDOW_SECONDS: u64 = 10;
 const MAX_MESSAGES_PER_WINDOW: u32 = 1_000;
 const MAX_HEAVY_MESSAGES_PER_WINDOW: u32 = 200;
@@ -432,7 +433,6 @@ pub async fn serve_socket(mut socket: WebSocket, node: Arc<Node>) -> Result<(), 
         Message::Binary(WireMessage::Hello(hello.clone()).encode_frame().into()),
     )
     .await?;
-
     let first = tokio::time::timeout(std::time::Duration::from_secs(10), socket.next())
         .await
         .map_err(|_| PeerError::Handshake)?
@@ -472,13 +472,13 @@ pub async fn serve_socket(mut socket: WebSocket, node: Arc<Node>) -> Result<(), 
     let result = async {
         if remote.tip != node.chain_snapshot().tip {
             send_message(&mut socket, Message::Binary(
-                    WireMessage::GetHeaders {
-                        locator: node.block_locator(),
-                        stop: Hash32::ZERO,
-                    }
-                    .encode_frame()
-                    .into(),
-                )).await?;
+                WireMessage::GetHeaders {
+                    locator: node.block_locator(),
+                    stop: Hash32::ZERO,
+                }
+                .encode_frame()
+                .into(),
+            )).await?;
         }
         loop {
             tokio::select! {
@@ -564,9 +564,7 @@ pub fn spawn_outbound_manager(node: &Arc<Node>) -> Vec<tokio::task::JoinHandle<(
 #[allow(clippy::too_many_lines)]
 async fn outbound_once(node: Arc<Node>, url: &str) -> Result<(), PeerError> {
     use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
-
     let (mut socket, _) = tokio::time::timeout(std::time::Duration::from_secs(15), async {
-        // Connect to the checked DNS result, not a second potentially rebound lookup.
         let addresses = ensure_public_peer(url).await?;
         let stream = tokio::net::TcpStream::connect(addresses.as_slice())
             .await
@@ -580,6 +578,7 @@ async fn outbound_once(node: Arc<Node>, url: &str) -> Result<(), PeerError> {
     })
     .await
     .map_err(|_| PeerError::Handshake)??;
+
     let first = tokio::time::timeout(std::time::Duration::from_secs(10), socket.next())
         .await
         .map_err(|_| PeerError::Handshake)?
@@ -633,13 +632,13 @@ async fn outbound_once(node: Arc<Node>, url: &str) -> Result<(), PeerError> {
     let result = async {
         if remote.tip != node.chain_snapshot().tip {
             send_message(&mut socket, TungsteniteMessage::Binary(
-                    WireMessage::GetHeaders {
-                        locator: node.block_locator(),
-                        stop: Hash32::ZERO,
-                    }
-                    .encode_frame()
-                    .into(),
-                )).await?;
+                WireMessage::GetHeaders {
+                    locator: node.block_locator(),
+                    stop: Hash32::ZERO,
+                }
+                .encode_frame()
+                .into(),
+            )).await?;
         }
         loop {
             tokio::select! {
@@ -702,9 +701,9 @@ pub(crate) fn normalize_peer_url(value: &str) -> Option<String> {
         return None;
     }
     if url.path().is_empty() || url.path() == "/" {
-        url.set_path("/p2p/v9");
+        url.set_path("/p2p/v10");
     }
-    if url.path() != "/p2p/v9" {
+    if url.path() != "/p2p/v10" {
         return None;
     }
     Some(url.to_string())
@@ -767,16 +766,16 @@ mod tests {
 
     #[tokio::test]
     async fn discovery_keeps_private_services_out_of_public_peer_dials() {
-        assert!(ensure_public_peer("wss://127.0.0.1:5051/p2p/v9")
+        assert!(ensure_public_peer("wss://127.0.0.1:5051/p2p/v10")
             .await
             .is_err());
-        assert!(ensure_public_peer("wss://10.0.0.1:5050/p2p/v9")
+        assert!(ensure_public_peer("wss://10.0.0.1:5050/p2p/v10")
             .await
             .is_err());
         assert!(normalize_peer_url("https://example.org/admin/config").is_none());
         assert_eq!(
             normalize_peer_url("https://example.org").as_deref(),
-            Some("wss://example.org/p2p/v9")
+            Some("wss://example.org/p2p/v10")
         );
     }
 
@@ -788,14 +787,12 @@ mod tests {
         };
         let encoded = message.encode_frame();
         assert_eq!(WireMessage::decode_frame(&encoded).unwrap(), message);
-
         let mut wrong_magic = encoded.clone();
         wrong_magic[0] ^= 1;
         assert!(matches!(
             WireMessage::decode_frame(&wrong_magic),
             Err(CodecError::NonCanonical("wrong P2P magic"))
         ));
-
         let mut trailing = encoded;
         trailing.push(0);
         assert!(matches!(
@@ -811,12 +808,11 @@ mod tests {
         let hello = Hello::signed(
             &secret,
             &snapshot,
-            "https://node.example/p2p/v9".to_owned(),
+            "https://node.example/p2p/v10".to_owned(),
             Hash32([3; 32]),
         );
         assert!(hello.verify(hello.timestamp));
         assert_eq!(hello.response_to, Hash32([3; 32]));
-
         let mut tampered = hello;
         tampered.height += 1;
         assert!(!tampered.verify(tampered.timestamp));
@@ -825,8 +821,8 @@ mod tests {
     #[test]
     fn duplicate_peer_urls_are_rejected() {
         let message = WireMessage::Peers(vec![
-            "wss://node.example/p2p/v9".to_owned(),
-            "wss://node.example/p2p/v9".to_owned(),
+            "wss://node.example/p2p/v10".to_owned(),
+            "wss://node.example/p2p/v10".to_owned(),
         ]);
         assert!(matches!(
             WireMessage::decode_frame(&message.encode_frame()),

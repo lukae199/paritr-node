@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Checksummed Paritr Protocol 9 installer for 64-bit Windows.
+  Checksummed Paritr Protocol 10 installer for 64-bit Windows.
 #>
 [CmdletBinding()]
 param(
@@ -21,8 +21,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$NodeVersion = '4.0.1-rc.5'
-$ProtocolVersion = 9
+$NodeVersion = '4.1.0-rc.1'
+$ProtocolVersion = 10
 $ChainId = 'paritr-mainnet'
 $RandomXTag = 'v1.2.3'
 $RandomXCommit = '12f2c2ffe2108d6cf54c391fee33c8bc3646cdab'
@@ -192,8 +192,8 @@ Set-Location -LiteralPath '$escapedDir'
 
     if ($OpenFirewall) {
         try {
-            Get-NetFirewallRule -DisplayName 'Paritr Protocol 9' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-            New-NetFirewallRule -DisplayName 'Paritr Protocol 9' -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -Profile Any | Out-Null
+            Get-NetFirewallRule -DisplayName 'Paritr Protocol 10' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+            New-NetFirewallRule -DisplayName 'Paritr Protocol 10' -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow -Profile Any | Out-Null
         } catch { Write-Warning 'Firewall rule could not be installed; run this script as Administrator or open the port manually.' }
     }
 

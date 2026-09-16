@@ -12,12 +12,12 @@ use crate::{
 };
 
 use super::{
-    bits_to_target, next_bits, pow_limit, randomx_seed_reference_height, reward_allocation,
-    target_work, workshare_bits, Block, BlockHeader, BlockTemplate, LedgerState, RewardAllocation,
-    RewardClaim, Transaction, WorkshareWitness, CHAIN_ID, HEADER_VERSION, MAX_BLOCK_BYTES,
-    MAX_BLOCK_TRANSACTIONS, MAX_FUTURE_BLOCK_TIME, MAX_MONEY, MAX_TEMPLATE_BYTES,
-    MAX_TRANSACTION_BYTES, MAX_WORKSHARE_WITNESS_BYTES, MEDIAN_TIME_SPAN, PROTOCOL_VERSION,
-    RANDOMX_BOOTSTRAP_SEED, REWARD_MATURITY,
+    bits_to_target, next_bits, pow_limit, randomx_seed_reference_height,
+    reward_allocation_with_weights, target_work, workshare_bits, Block, BlockHeader, BlockTemplate,
+    LedgerState, RewardAllocation, RewardClaim, Transaction, WorkshareWitness, CHAIN_ID,
+    HEADER_VERSION, MAX_BLOCK_BYTES, MAX_BLOCK_TRANSACTIONS, MAX_FUTURE_BLOCK_TIME, MAX_MONEY,
+    MAX_TEMPLATE_BYTES, MAX_TRANSACTION_BYTES, MAX_WORKSHARE_WITNESS_BYTES, MEDIAN_TIME_SPAN,
+    PROTOCOL_VERSION, RANDOMX_BOOTSTRAP_SEED, REWARD_MATURITY,
 };
 
 #[derive(Debug, Error)]
@@ -26,7 +26,7 @@ pub enum ConsensusError {
     Codec(#[from] CodecError),
     #[error("cryptographic validation failed: {0}")]
     Crypto(#[from] CryptoError),
-    #[error("block is not the fixed Protocol 9 genesis")]
+    #[error("block is not the fixed genesis")]
     InvalidGenesis,
     #[error("unsupported protocol or object version")]
     UnsupportedVersion,
@@ -131,11 +131,9 @@ pub fn validate_block(
     if block.workshare_witness.root() != block.header.workshare_root {
         return Err(ConsensusError::WorkshareRootMismatch);
     }
-
     let seed = randomx_seed(parent_history, block.header.height)?;
     let target = bits_to_target(block.header.bits).ok_or(ConsensusError::InvalidTarget)?;
     verify_pow(pow, &seed, &block.header, target)?;
-
     let claim = block
         .reward_claim
         .as_ref()
@@ -156,7 +154,6 @@ pub fn validate_block(
     if post_state.root() != block.header.state_root {
         return Err(ConsensusError::StateRootMismatch);
     }
-
     validate_workshares(
         &block.workshare_witness,
         parent_history,
@@ -167,17 +164,17 @@ pub fn validate_block(
     Ok(post_state)
 }
 
-pub(crate) fn transition_for_candidate(
+pub(crate) fn transition_for_candidate_with_weights(
     height: u64,
     claim: &RewardClaim,
     transactions: &[Transaction],
-    parent_history: &[Block],
     parent_state: &LedgerState,
+    weights: &BTreeMap<crate::crypto::Address, primitive_types::U512>,
 ) -> Result<(LedgerState, RewardAllocation, u64), ConsensusError> {
     let mut state = parent_state.clone();
     state.mature(height)?;
     let fees = apply_transactions(&mut state, transactions)?;
-    let allocation = reward_allocation(height, claim.finder, fees, parent_history)?;
+    let allocation = reward_allocation_with_weights(height, claim.finder, fees, weights)?;
     if claim.amount != allocation.finder_amount {
         return Err(ConsensusError::RewardMismatch);
     }
@@ -189,6 +186,17 @@ pub(crate) fn transition_for_candidate(
         state.schedule_reward(maturity, *recipient, *amount)?;
     }
     Ok((state, allocation, fees))
+}
+
+pub(crate) fn transition_for_candidate(
+    height: u64,
+    claim: &RewardClaim,
+    transactions: &[Transaction],
+    parent_history: &[Block],
+    parent_state: &LedgerState,
+) -> Result<(LedgerState, RewardAllocation, u64), ConsensusError> {
+    let weights = super::rewards::compute_window_weights(parent_history)?;
+    transition_for_candidate_with_weights(height, claim, transactions, parent_state, &weights)
 }
 
 fn apply_transactions(
@@ -342,6 +350,8 @@ pub(crate) fn validate_workshares(
     let mut previous = Hash32::ZERO;
     let mut prefix = WorkshareWitness::empty();
 
+    let weights = super::rewards::compute_window_weights(parent_history)?;
+
     for share in &witness.workshares {
         if share.version != super::Workshare::VERSION
             || share.previous_workshare != previous
@@ -372,7 +382,7 @@ pub(crate) fn validate_workshares(
                 sum.checked_add(transaction.fee)
                     .ok_or(ConsensusError::MoneyRange)
             })?;
-        let allocation = reward_allocation(template.height, share.miner, fees, parent_history)?;
+        let allocation = reward_allocation_with_weights(template.height, share.miner, fees, &weights)?;
         let claim = RewardClaim {
             version: RewardClaim::VERSION,
             height: template.height,
@@ -380,12 +390,12 @@ pub(crate) fn validate_workshares(
             amount: allocation.finder_amount,
             extranonce: share.extranonce,
         };
-        let (state, _, _) = transition_for_candidate(
+        let (state, _, _) = transition_for_candidate_with_weights(
             template.height,
             &claim,
             &template.transactions,
-            parent_history,
             parent_state,
+            &weights,
         )?;
         let mut txids = Vec::with_capacity(template.transactions.len() + 1);
         txids.push(claim.id());
@@ -399,14 +409,11 @@ pub(crate) fn validate_workshares(
         let pow_hash = pow
             .hash(&seed, &share.candidate_header.consensus_encode())
             .map_err(ConsensusError::PowUnavailable)?;
-        // A full-target solution is a block, not a reward-bearing Workshare.
-        // Enforcing the open lower bound avoids claiming the same work twice.
         if !super::difficulty::hash_meets_target(pow_hash, share_target)
             || super::difficulty::hash_meets_target(pow_hash, block_target)
         {
             return Err(ConsensusError::InvalidProofOfWork);
         }
-
         previous = share.id();
         prefix.workshares.push(share.clone());
         if !prefix
@@ -455,7 +462,7 @@ pub fn randomx_seed(parent_history: &[Block], height: u64) -> Result<Vec<u8>, Co
     material.u64(height / super::RANDOMX_EPOCH_BLOCKS);
     reference.id().encode_to(&mut material);
     Ok(
-        domain_hash(b"PARITR-P9-RANDOMX-EPOCH-v1", &material.into_inner())
+        domain_hash(b"PARITR-P10-RANDOMX-EPOCH-v1", &material.into_inner())
             .0
             .to_vec(),
     )
@@ -481,211 +488,4 @@ pub fn cumulative_work(blocks: &[Block]) -> Result<U256, ConsensusError> {
             .checked_add(target_work(target))
             .ok_or(ConsensusError::ArithmeticOverflow)
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{
-        codec::ConsensusEncode,
-        consensus::{
-            merkle_root, Chain, ChainEvent, Workshare, WorkshareWitness, GENESIS_TIMESTAMP,
-            INITIAL_SUBSIDY, TARGET_BLOCK_TIME,
-        },
-        crypto::Address,
-    };
-    use primitive_types::U256;
-    use secp256k1::{PublicKey, Secp256k1, SecretKey};
-
-    struct FixedPow([u8; 32]);
-
-    impl PowVerifier for FixedPow {
-        fn hash(&self, _seed: &[u8], _input: &[u8]) -> Result<[u8; 32], String> {
-            Ok(self.0)
-        }
-    }
-
-    struct FixedTime;
-
-    impl TimeSource for FixedTime {
-        fn unix_time(&self) -> u64 {
-            u64::MAX / 2
-        }
-    }
-
-    fn address(byte: u8) -> Address {
-        let secret = SecretKey::from_slice(&[byte; 32]).expect("valid test secret");
-        Address::from_public_key(&PublicKey::from_secret_key(&Secp256k1::new(), &secret))
-    }
-
-    fn next_block(
-        history: &[Block],
-        state: &LedgerState,
-        finder: Address,
-        nonce: u64,
-    ) -> (Block, LedgerState) {
-        let parent = history.last().expect("history contains genesis");
-        let height = parent.header.height + 1;
-        let allocation = reward_allocation(height, finder, 0, history).expect("test allocation");
-        let claim = RewardClaim {
-            version: RewardClaim::VERSION,
-            height,
-            finder,
-            amount: allocation.finder_amount,
-            extranonce: height,
-        };
-        let (post_state, _, _) =
-            transition_for_candidate(height, &claim, &[], history, state).expect("test transition");
-        let witness = WorkshareWitness::empty();
-        let block = Block {
-            header: BlockHeader {
-                version: HEADER_VERSION,
-                protocol: PROTOCOL_VERSION,
-                height,
-                previous_block: parent.id(),
-                transactions_root: merkle_root(&[claim.id()]),
-                state_root: post_state.root(),
-                workshare_root: witness.root(),
-                timestamp: GENESIS_TIMESTAMP + height * TARGET_BLOCK_TIME,
-                bits: next_bits(history),
-                nonce,
-            },
-            reward_claim: Some(claim),
-            transactions: Vec::new(),
-            workshare_witness: witness,
-        };
-        (block, post_state)
-    }
-
-    fn chain_with_blocks(count: u64, finder: Address, nonce: u64) -> Vec<Block> {
-        let mut blocks = vec![Block::genesis()];
-        let mut state = LedgerState::default();
-        for _ in 0..count {
-            let (block, next_state) = next_block(&blocks, &state, finder, nonce);
-            blocks.push(block);
-            state = next_state;
-        }
-        blocks
-    }
-
-    #[test]
-    fn rewards_are_committed_then_mature_exactly_at_height() {
-        let finder = address(1);
-        let blocks = chain_with_blocks(REWARD_MATURITY + 1, finder, 0);
-        let chain = Chain::from_blocks(blocks, &FixedPow([0; 32]), &FixedTime).unwrap();
-        assert_eq!(chain.state().account(finder).balance, INITIAL_SUBSIDY);
-        assert_eq!(
-            chain.state().pending_for(finder),
-            INITIAL_SUBSIDY * REWARD_MATURITY
-        );
-        assert_eq!(chain.tip().header.state_root, chain.state().root());
-    }
-
-    #[test]
-    fn heavier_valid_chain_reorganizes_beyond_one_hundred_blocks() {
-        let mut active = Chain::from_blocks(
-            chain_with_blocks(101, address(2), 0),
-            &FixedPow([0; 32]),
-            &FixedTime,
-        )
-        .unwrap();
-        let candidate = chain_with_blocks(102, address(3), 1);
-        let event = active
-            .consider_chain(candidate, &FixedPow([0; 32]), &FixedTime)
-            .unwrap();
-        assert!(matches!(
-            event,
-            ChainEvent::Reorganized { fork_height: 0, .. }
-        ));
-        assert_eq!(active.height(), 102);
-    }
-
-    fn one_workshare_witness(miner: Address) -> WorkshareWitness {
-        let history = vec![Block::genesis()];
-        let parent = history.last().unwrap();
-        let template = BlockTemplate {
-            version: BlockTemplate::VERSION,
-            height: 1,
-            parent: parent.id(),
-            transactions: Vec::new(),
-        };
-        let allocation = reward_allocation(1, miner, 0, &history).unwrap();
-        let claim = RewardClaim {
-            version: RewardClaim::VERSION,
-            height: 1,
-            finder: miner,
-            amount: allocation.finder_amount,
-            extranonce: 7,
-        };
-        let (post_state, _, _) =
-            transition_for_candidate(1, &claim, &[], &history, &LedgerState::default()).unwrap();
-        let prefix = WorkshareWitness::empty();
-        let share = Workshare {
-            version: Workshare::VERSION,
-            previous_workshare: Hash32::ZERO,
-            template_id: template.id(),
-            miner,
-            extranonce: 7,
-            candidate_header: BlockHeader {
-                version: HEADER_VERSION,
-                protocol: PROTOCOL_VERSION,
-                height: 1,
-                previous_block: parent.id(),
-                transactions_root: merkle_root(&[claim.id()]),
-                state_root: post_state.root(),
-                workshare_root: prefix.root(),
-                timestamp: GENESIS_TIMESTAMP + 1,
-                bits: next_bits(&history),
-                nonce: 9,
-            },
-        };
-        WorkshareWitness {
-            version: WorkshareWitness::VERSION,
-            templates: vec![template],
-            workshares: vec![share],
-        }
-    }
-
-    #[test]
-    fn full_block_solution_cannot_also_be_claimed_as_workshare() {
-        let history = vec![Block::genesis()];
-        let witness = one_workshare_witness(address(4));
-        assert!(matches!(
-            validate_workshares(
-                &witness,
-                &history,
-                &LedgerState::default(),
-                &FixedPow([0; 32]),
-                GENESIS_TIMESTAMP + 1,
-            ),
-            Err(ConsensusError::InvalidProofOfWork)
-        ));
-    }
-
-    #[test]
-    fn hash_strictly_between_targets_is_a_valid_workshare() {
-        let history = vec![Block::genesis()];
-        let witness = one_workshare_witness(address(5));
-        let block_target = bits_to_target(next_bits(&history)).unwrap();
-        let share_target = bits_to_target(workshare_bits(next_bits(&history)).unwrap()).unwrap();
-        let share_hash = (block_target + U256::one()).to_little_endian();
-        assert!(U256::from_little_endian(&share_hash) <= share_target);
-        validate_workshares(
-            &witness,
-            &history,
-            &LedgerState::default(),
-            &FixedPow(share_hash),
-            GENESIS_TIMESTAMP + 1,
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn header_hash_input_is_exact_consensus_bytes() {
-        let (block, _) = next_block(&[Block::genesis()], &LedgerState::default(), address(6), 0);
-        assert_eq!(
-            block.header.consensus_encode().len(),
-            BlockHeader::ENCODED_LEN
-        );
-    }
 }

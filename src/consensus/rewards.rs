@@ -1,7 +1,5 @@
 use std::collections::BTreeMap;
-
 use primitive_types::{U256, U512};
-
 use crate::crypto::Address;
 
 use super::{
@@ -23,24 +21,17 @@ impl RewardAllocation {
     }
 }
 
-pub fn reward_allocation(
-    height: u64,
-    finder: Address,
-    fees: u64,
+pub fn compute_window_weights(
     parent_history: &[Block],
-) -> Result<RewardAllocation, ConsensusError> {
-    let subsidy = block_subsidy(height);
-    if fees > MAX_MONEY || subsidy.checked_add(fees).is_none() {
-        return Err(ConsensusError::MoneyRange);
-    }
-    let finder_base = subsidy * FINDER_SHARE_PERCENT / 100;
-    let pool = subsidy - finder_base;
-
+) -> Result<BTreeMap<Address, U512>, ConsensusError> {
     let start = parent_history
         .len()
         .saturating_sub(usize::try_from(REWARD_WINDOW).expect("window fits usize"));
     let mut weights: BTreeMap<Address, U512> = BTreeMap::new();
     for block in &parent_history[start..] {
+        if block.workshare_witness.workshares.is_empty() {
+            continue;
+        }
         for share in &block.workshare_witness.workshares {
             let share_bits =
                 workshare_bits(share.candidate_header.bits).ok_or(ConsensusError::InvalidTarget)?;
@@ -50,11 +41,26 @@ pub fn reward_allocation(
             *entry = entry.saturating_add(weight);
         }
     }
+    Ok(weights)
+}
 
+pub fn reward_allocation_with_weights(
+    height: u64,
+    finder: Address,
+    fees: u64,
+    weights: &BTreeMap<Address, U512>,
+) -> Result<RewardAllocation, ConsensusError> {
+    let subsidy = block_subsidy(height);
+    if fees > MAX_MONEY || subsidy.checked_add(fees).is_none() {
+        return Err(ConsensusError::MoneyRange);
+    }
+    let finder_base = subsidy * FINDER_SHARE_PERCENT / 100;
+    let pool = subsidy - finder_base;
     let total_weight = weights
         .values()
         .copied()
         .fold(U512::zero(), U512::saturating_add);
+
     if pool == 0 || total_weight.is_zero() {
         return Ok(RewardAllocation {
             finder_amount: finder_base
@@ -68,17 +74,18 @@ pub fn reward_allocation(
     let mut allocations = Vec::with_capacity(weights.len());
     let mut distributed = 0_u64;
     for (address, weight) in weights {
-        let numerator = U512::from(pool) * weight;
+        let numerator = U512::from(pool) * (*weight);
         let amount = (numerator / total_weight).low_u64();
         let remainder = numerator % total_weight;
         distributed = distributed
             .checked_add(amount)
             .ok_or(ConsensusError::MoneyRange)?;
-        allocations.push((address, amount, remainder));
+        allocations.push((*address, amount, remainder));
     }
     let leftover = pool
         .checked_sub(distributed)
         .ok_or(ConsensusError::MoneyRange)?;
+
     allocations.sort_by(|left, right| right.2.cmp(&left.2).then_with(|| left.0.cmp(&right.0)));
     for allocation in allocations
         .iter_mut()
@@ -87,6 +94,7 @@ pub fn reward_allocation(
         allocation.1 += 1;
     }
     allocations.sort_by_key(|allocation| allocation.0);
+
     let workshare_rewards = allocations
         .into_iter()
         .filter_map(|(address, amount, _)| (amount > 0).then_some((address, amount)))
@@ -101,8 +109,18 @@ pub fn reward_allocation(
     if result.total() != subsidy + fees {
         return Err(ConsensusError::RewardMismatch);
     }
-    let _ = finder; // Finder identity matters to the caller's state transition.
+    let _ = finder;
     Ok(result)
+}
+
+pub fn reward_allocation(
+    height: u64,
+    finder: Address,
+    fees: u64,
+    parent_history: &[Block],
+) -> Result<RewardAllocation, ConsensusError> {
+    let weights = compute_window_weights(parent_history)?;
+    reward_allocation_with_weights(height, finder, fees, &weights)
 }
 
 pub fn workshare_weight(block_bits: u32) -> Result<U256, ConsensusError> {

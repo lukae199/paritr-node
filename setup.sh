@@ -2,8 +2,8 @@
 # Unified Paritr Protocol 9 setup for Linux, macOS and FreeBSD.
 set -Eeuo pipefail
 
-NODE_VERSION="4.0.1-rc.5"
-PROTOCOL_VERSION="9"
+NODE_VERSION="4.1.0-rc.1"
+PROTOCOL_VERSION="10"
 SOURCE_BASE="${PARITR_SOURCE:-https://paritr.highactive.de/downloads}"
 DEPLOYMENT="auto"
 IMAGE_REF="${PARITR_IMAGE_REF:-}"

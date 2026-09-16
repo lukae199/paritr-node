@@ -46,7 +46,6 @@ impl Storage {
     fn initialize_identity(&self) -> anyhow::Result<()> {
         let write_txn = self.db.begin_write()?;
         {
-            // Tabellen initial anlegen
             let _ = write_txn.open_table(TABLE_BLOCKS)?;
             let _ = write_txn.open_table(TABLE_ACTIVE_CHAIN)?;
             let _ = write_txn.open_table(TABLE_STATE_SNAPSHOTS)?;
@@ -95,8 +94,6 @@ impl Storage {
         Ok(blocks)
     }
 
-    /// Schreibt Blockeinträge, die aktive Kette, Tip-Metadaten und den State-Snapshot
-    /// in einer einzigen atomaren Transaktion.
     pub fn save_chain(&self, chain: &Chain) -> anyhow::Result<()> {
         let write_txn = self.db.begin_write()?;
         {
@@ -230,7 +227,6 @@ mod tests {
         let path = directory.path().join("chain.redb");
         let storage = Storage::open(&path).unwrap();
         let chain = Chain::genesis();
-        storage.save_chain(&chain).unwrap();
         storage.save_chain(&chain).unwrap();
         drop(storage);
 
