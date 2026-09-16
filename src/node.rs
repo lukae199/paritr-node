@@ -384,11 +384,9 @@ impl Node {
             0.0
         };
 
-        let implied_hashrate = consensus::bits_to_target(tip.header.bits)
-            .map(|target| {
-                work_as_f64(consensus::target_work(target)) / consensus::TARGET_BLOCK_TIME as f64
-            })
-            .unwrap_or(0.0);
+        let implied_hashrate = consensus::bits_to_target(tip.header.bits).map_or(0.0, |target| {
+            work_as_f64(consensus::target_work(target)) / consensus::TARGET_BLOCK_TIME as f64
+        });
 
         let network_hashrate = if estimated_hashrate > 0.0 {
             estimated_hashrate.max(hashrate)

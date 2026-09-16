@@ -190,7 +190,7 @@ impl Storage {
             let peer: StoredPeer = serde_json::from_slice(val.value())?;
             peers.push(peer);
         }
-        peers.sort_by(|a, b| b.last_success.cmp(&a.last_success));
+        peers.sort_by_key(|peer| std::cmp::Reverse(peer.last_success));
         Ok(peers)
     }
 
